@@ -11,6 +11,7 @@
 #define STBI_NO_HDR
 #define STBI_NO_LINEAR
 #define STBI_ONLY_JPEG // at least for now, only use it for JPEG
+#define STBI_ONLY_PNG // also png!
 #define STBI_NO_STDIO  // images are passed as buffers
 #include "stb_image.h"
 
@@ -37,4 +38,3 @@ static unsigned char* compress_for_stbiw(unsigned char* data, int data_len, int*
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define STBIW_ZLIB_COMPRESS compress_for_stbiw
 #include "stb_image_write.h"
-
