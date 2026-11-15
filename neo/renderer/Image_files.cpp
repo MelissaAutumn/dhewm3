@@ -861,7 +861,7 @@ void R_LoadImage( const char *cname, byte **pic, int *width, int *height, ID_TIM
 		LoadTGA( name.c_str(), pic, width, height, timestamp );            // try tga first
 		if ( ( pic && *pic == 0 ) || ( timestamp && *timestamp == FILE_NOT_FOUND_TIMESTAMP ) ) {
 			name.StripFileExtension();
-			name.DefaultFileExtension( ".jpg" );
+			name.DefaultFileExtension( ".png" );
 			LoadJPG( name.c_str(), pic, width, height, timestamp );
 		}
 	} else if ( ext == "pcx" ) {
