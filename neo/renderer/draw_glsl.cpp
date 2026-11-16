@@ -415,7 +415,7 @@ idStr globalShaders[] = {
 	"basicSurf",
 	"basicCube",
 	//"basicObjectLinear",
-	//"fogLight",
+	"fogLight",
 	//"customMaskPass"
 };
 
