@@ -12,7 +12,12 @@
 #include "idlib/Str.h"
 #include "idlib/math/Matrix.h"
 #include "idlib/math/Vector.h"
-#include <SDL3/SDL_opengl.h>
+
+#ifdef D3_SDL3
+  #include <SDL3/SDL_opengl.h>
+#else // SDL1.2 or SDL2
+  #include <SDL_opengl.h>
+#endif
 #include "qgl.h"
 
 const int NUM_PROG_ENV = 32;

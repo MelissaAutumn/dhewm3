@@ -1724,8 +1724,8 @@ static void SetVideoStuffFromCVars()
 	initialCustomVidRes[0] = r_customWidth.GetInteger();
 	initialCustomVidRes[1] = r_customHeight.GetInteger();
 
-	initialFullscreen = r_fullscreen.GetBool();
-	initialFullscreenDesktop = r_fullscreenDesktop.GetBool();
+	initialFullscreen = r_fullscreen.GetInteger();
+	//initialFullscreenDesktop = r_fullscreenDesktop.GetBool();
 
 	initialMSAAmode = r_multiSamples.GetInteger();
 
@@ -1753,8 +1753,8 @@ static bool VideoHasResettableChanges()
 	{
 		return true;
 	}
-	if ( r_fullscreen.GetBool() != initialFullscreen
-	     || r_fullscreenDesktop.GetBool() != initialFullscreenDesktop )
+	if ( r_fullscreen.GetInteger() != initialFullscreen )
+	     //|| r_fullscreenDesktop.GetBool() != initialFullscreenDesktop )
 	{
 		return true;
 	}
@@ -1825,7 +1825,7 @@ static void VideoResetChanges()
 	r_customHeight.SetInteger( initialCustomVidRes[1] );
 
 	r_fullscreen.SetBool( initialFullscreen );
-	r_fullscreenDesktop.SetBool( initialFullscreenDesktop );
+	//r_fullscreenDesktop.SetBool( initialFullscreenDesktop );
 
 	r_multiSamples.SetInteger( initialMSAAmode );
 	globalImages->image_usePrecompressedTextures.SetInteger( initialUsePrecomprTextures );

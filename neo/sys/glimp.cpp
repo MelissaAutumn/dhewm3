@@ -196,7 +196,7 @@ bool GLimp_Init(glimpParms_t parms) {
 			flags |= SDL_WINDOW_FULLSCREEN;
 		}
 #elif SDL_VERSION_ATLEAST(2, 0, 0)
-		flags |= parms.fullScreenDesktop ? SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_FULLSCREEN;
+		flags |= parms.borderless ? SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_FULLSCREEN;
 #else // SDL1.2
 		flags |= SDL_WINDOW_FULLSCREEN;
 #endif
@@ -1068,8 +1068,8 @@ glimpParms_t GLimp_GetCurState()
 		curMultiSamples = 0; // SDL_GL_GetAttribute() call failed, assume no MSAA
 	}
 
-	ret.fullScreenDesktop = (winFlags & SDL_WINDOW_FULLSCREEN_DESKTOP) == SDL_WINDOW_FULLSCREEN_DESKTOP;
-	if ( ret.fullScreen && !ret.fullScreenDesktop ) { // I think SDL_GetWindowDisplayMode() is only for "real" fullscreen?
+	ret.fullScreen = (winFlags & SDL_WINDOW_FULLSCREEN_DESKTOP) == SDL_WINDOW_FULLSCREEN_DESKTOP ? 2 : 1;
+	if ( ret.fullScreen ) { // I think SDL_GetWindowDisplayMode() is only for "real" fullscreen?
 		SDL_DisplayMode real_mode = {};
 		if ( SDL_GetWindowDisplayMode( window, &real_mode ) == 0 ) {
 			ret.width = real_mode.w;
@@ -1343,7 +1343,7 @@ void GLimp_ClearFrameBuffers()
 			qglBindFramebuffer(GL_FRAMEBUFFER, 0);
 			qglDeleteFramebuffers(1, &backEnd.frameBuffersIdsAllocated[fbIdx]);
 			qglDeleteTextures(1, &backEnd.frameBuffersTextureIdsAllocated[fbIdx]);
-			
+
 			if (backEnd.frameBuffersDepthIdsAllocated[fbIdx] != 0)
 			{
 				qglDeleteTextures(1, &backEnd.frameBuffersDepthIdsAllocated[fbIdx]);
