@@ -192,7 +192,7 @@ bool GLimp_Init(glimpParms_t parms) {
 		// in SDL3 windows with SDL_WINDOW_FULLSCREEN set are fullscreen-desktop by default
 		// and for exclusive fullscreen SDL_SetWindowFullscreenMode() must be called
 		// after creating the window, so only set the flag if we want fullscreen-desktop mode
-		if(parms.fullScreen && parms.fullScreenDesktop) {
+		if(parms.fullScreen && parms.borderless) {
 			flags |= SDL_WINDOW_FULLSCREEN;
 		}
 #elif SDL_VERSION_ATLEAST(2, 0, 0)
@@ -329,7 +329,7 @@ try_again:
 			SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
 		}
 
-		if ( parms.fullScreen && parms.fullScreenDesktop ) {
+		if ( parms.fullScreen && parms.borderless ) {
 			common->Printf( "Will create a pseudo-fullscreen window at the current desktop resolution\n" );
 		} else {
 			const char* windowMode = parms.fullScreen ? "fullscreen-" : "";
@@ -443,7 +443,7 @@ try_again:
 		// handle exclusive fullscreen mode (windowed mode and fullscreen
 		//  desktop were set when creating the window)
 		// TODO: just call GLimp_SetScreenParms() ?
-		if (parms.fullScreen && !parms.fullScreenDesktop) {
+		if (parms.fullScreen && !parms.borderless) {
 			SDL_DisplayID displayID = SDL_GetDisplayForWindow( window );
 			SDL_DisplayMode mode = {};
 			if ( SDL_GetClosestFullscreenDisplayMode(displayID, parms.width, parms.height,
@@ -690,7 +690,7 @@ try_again:
 				};
 				memcpy(&win32.pfd, &src, sizeof(PIXELFORMATDESCRIPTOR));
 			}
-			
+
 			win32.piAttribIList = NULL;
 
 			win32.wglGetPixelFormatAttribivARB = (BOOL(WINAPI*)(HDC,int,int,UINT,const int*,int*))SDL_GL_GetProcAddress("wglGetPixelFormatAttribivARB");
@@ -716,9 +716,9 @@ try_again:
 				};
 				enum { NUM_ATTRIBUTES = sizeof(queryAttributes)/sizeof(queryAttributes[0]) };
 				int queryResults[NUM_ATTRIBUTES] = {};
-				
+
 				win32.wglGetPixelFormatAttribivARB(win32.hDC, pfIdx, PFD_MAIN_PLANE, NUM_ATTRIBUTES, queryAttributes, queryResults);
-				
+
 				static int attribIList[2*NUM_ATTRIBUTES+2] = {}; // +2 for terminating 0, 0 pair
 				for(int i=0; i<NUM_ATTRIBUTES; ++i) {
 					attribIList[i*2] = queryAttributes[i];
@@ -729,7 +729,7 @@ try_again:
 		} else {
 			// TODO: can we just disable them?
 			common->Error("SDL_GetWindowWMInfo(), which is needed for Tools to work, failed!");
-		}		
+		}
 #endif // defined(_WIN32) && defined(ID_ALLOW_TOOLS)
 
 		idStr msaaStr;
@@ -830,11 +830,11 @@ bool GLimp_SetScreenParms(glimpParms_t parms) {
 		return false;
 	}
 
-	bool wantFullscreenDesktop = parms.fullScreen && parms.fullScreenDesktop;
+	bool wantFullscreenDesktop = parms.fullScreen && parms.borderless;
 
 	// TODO: parms.displayHz ?
 
-	if ( curState.fullScreenDesktop && wantFullscreenDesktop ) {
+	if ( curState.borderless && wantFullscreenDesktop ) {
 		return true; // nothing to do (resolution is not configurable in that mode)
 	}
 
@@ -1056,7 +1056,7 @@ glimpParms_t GLimp_GetCurState()
 		} else {
 			// SDL_WINDOW_FULLSCREEN is set, but SDL_GetWindowFullscreenMode() returns NULL
 			// => fullscreen desktop mode
-			ret.fullScreenDesktop = true;
+			ret.borderless = true;
 		}
 	}
   #else // SDL2
@@ -1326,6 +1326,47 @@ bool GLimp_SetWindowResizable( bool enableResizable )
 	return false;
 #endif
 }
+
+
+
+// blendo eric: delete frame buffers for res changes
+void GLimp_ClearFrameBuffers()
+{
+	backEnd.frameBufferId = FrameBufferIds_t::FRAME_DEFAULT_BACKBUFFER;
+	for (int fbIdx = 1; fbIdx < (int)FrameBufferIds_t::FRAME_MAX; fbIdx++)
+	{
+		if (backEnd.frameBuffersIdsAllocated[fbIdx] != 0)
+		{
+			qglBindFramebuffer(GL_FRAMEBUFFER, backEnd.frameBuffersIdsAllocated[fbIdx]);
+			qglFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+			qglFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+			qglBindFramebuffer(GL_FRAMEBUFFER, 0);
+			qglDeleteFramebuffers(1, &backEnd.frameBuffersIdsAllocated[fbIdx]);
+			qglDeleteTextures(1, &backEnd.frameBuffersTextureIdsAllocated[fbIdx]);
+			
+			if (backEnd.frameBuffersDepthIdsAllocated[fbIdx] != 0)
+			{
+				qglDeleteTextures(1, &backEnd.frameBuffersDepthIdsAllocated[fbIdx]);
+			}
+
+			if (backEnd.frameBuffersCustomMaskAllocated[fbIdx] != 0)
+			{
+				qglDeleteTextures(1, &backEnd.frameBuffersCustomMaskAllocated[fbIdx]);
+			}
+
+			if (backEnd.frameBuffersLightAllocated[fbIdx] != 0)
+			{
+				qglDeleteTextures(1, &backEnd.frameBuffersLightAllocated[fbIdx]);
+			}
+		}
+		backEnd.frameBuffersIdsAllocated[fbIdx] = 0;
+		backEnd.frameBuffersTextureIdsAllocated[fbIdx] = 0;
+		backEnd.frameBuffersDepthIdsAllocated[fbIdx] = 0;
+		backEnd.frameBuffersCustomMaskAllocated[fbIdx] = 0;
+		backEnd.frameBuffersLightAllocated[fbIdx] = 0;
+	}
+}
+
 
 void GLimp_UpdateWindowSize()
 {

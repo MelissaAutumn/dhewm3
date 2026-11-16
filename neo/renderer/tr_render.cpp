@@ -91,9 +91,14 @@ void RB_DrawElementsWithCounters( const srfTriangles_t *tri ) {
 		}
 	}
 
+	int triCount = r_blendoTriangleCount.GetInteger()*3;
+	if (triCount < 0 || triCount > tri->numIndexes) {
+		triCount = r_singleTriangle.GetBool() ? 3 : tri->numIndexes;
+	}
+
 	if ( tri->indexCache && r_useIndexBuffers.GetBool() ) {
 		qglDrawElements( GL_TRIANGLES,
-						r_singleTriangle.GetBool() ? 3 : tri->numIndexes,
+						triCount,
 						GL_INDEX_TYPE,
 						(int *)vertexCache.Position( tri->indexCache ) );
 		backEnd.pc.c_vboIndexes += tri->numIndexes;
@@ -102,7 +107,7 @@ void RB_DrawElementsWithCounters( const srfTriangles_t *tri ) {
 			vertexCache.UnbindIndex();
 		}
 		qglDrawElements( GL_TRIANGLES,
-						r_singleTriangle.GetBool() ? 3 : tri->numIndexes,
+						triCount,
 						GL_INDEX_TYPE,
 						tri->indexes );
 	}
@@ -120,9 +125,14 @@ void RB_DrawShadowElementsWithCounters( const srfTriangles_t *tri, int numIndexe
 	backEnd.pc.c_shadowIndexes += numIndexes;
 	backEnd.pc.c_shadowVertexes += tri->numVerts;
 
+	int triCount = r_blendoTriangleCount.GetInteger() * 3;
+	if (triCount < 0 || triCount > numIndexes) {
+		triCount = r_singleTriangle.GetBool() ? 3 : numIndexes;
+	}
+
 	if ( tri->indexCache && r_useIndexBuffers.GetBool() ) {
 		qglDrawElements( GL_TRIANGLES,
-						r_singleTriangle.GetBool() ? 3 : numIndexes,
+						triCount,
 						GL_INDEX_TYPE,
 						(int *)vertexCache.Position( tri->indexCache ) );
 		backEnd.pc.c_vboIndexes += numIndexes;
@@ -131,7 +141,7 @@ void RB_DrawShadowElementsWithCounters( const srfTriangles_t *tri, int numIndexe
 			vertexCache.UnbindIndex();
 		}
 		qglDrawElements( GL_TRIANGLES,
-						r_singleTriangle.GetBool() ? 3 : numIndexes,
+						triCount,
 						GL_INDEX_TYPE,
 						tri->indexes );
 	}
@@ -153,6 +163,20 @@ void RB_RenderTriangleSurface( const srfTriangles_t *tri ) {
 
 
 	idDrawVert *ac = (idDrawVert *)vertexCache.Position( tri->ambientCache );
+	R_GLSL_SetVertexAttribs( ac );
+
+	RB_DrawElementsWithCounters( tri );
+}
+
+void RB_RenderDebugTriangleSurface( const srfTriangles_t *tri ) {
+	if ( !tri->ambientCache ) {
+		RB_DrawElementsImmediate( tri );
+		return;
+	}
+
+	// For the debug triangle surfaces, we just use the legacy vertex/tex pointers since
+	// they won't use shaders
+	idDrawVert *ac = ( idDrawVert * )vertexCache.Position( tri->ambientCache );
 	qglVertexPointer( 3, GL_FLOAT, sizeof( idDrawVert ), ac->xyz.ToFloatPtr() );
 	qglTexCoordPointer( 2, GL_FLOAT, sizeof( idDrawVert ), ac->st.ToFloatPtr() );
 
@@ -167,6 +191,10 @@ RB_T_RenderTriangleSurface
 */
 void RB_T_RenderTriangleSurface( const drawSurf_t *surf ) {
 	RB_RenderTriangleSurface( surf->geo );
+}
+
+void RB_T_RenderDebugTriangleSurface( const drawSurf_t *surf ) {
+	RB_RenderDebugTriangleSurface( surf->geo );
 }
 
 /*
@@ -184,7 +212,7 @@ void RB_EnterWeaponDepthHack() {
 	matrix[14] *= 0.25;
 
 	qglMatrixMode(GL_PROJECTION);
-	qglLoadMatrixf( matrix );
+	RB_LoadMatrix( matrix, GL_PROJECTION );
 	qglMatrixMode(GL_MODELVIEW);
 }
 
@@ -203,7 +231,7 @@ void RB_EnterModelDepthHack( float depth ) {
 	matrix[14] -= depth;
 
 	qglMatrixMode(GL_PROJECTION);
-	qglLoadMatrixf( matrix );
+	RB_LoadMatrix( matrix, GL_PROJECTION );
 	qglMatrixMode(GL_MODELVIEW);
 }
 
@@ -216,7 +244,7 @@ void RB_LeaveDepthHack() {
 	qglDepthRange( 0, 1 );
 
 	qglMatrixMode(GL_PROJECTION);
-	qglLoadMatrixf( backEnd.viewDef->projectionMatrix );
+	RB_LoadMatrix( backEnd.viewDef->projectionMatrix, GL_PROJECTION );
 	qglMatrixMode(GL_MODELVIEW);
 }
 
@@ -242,7 +270,7 @@ void RB_RenderDrawSurfListWithFunction( drawSurf_t **drawSurfs, int numDrawSurfs
 
 		// change the matrix if needed
 		if ( drawSurf->space != backEnd.currentSpace ) {
-			qglLoadMatrixf( drawSurf->space->modelViewMatrix );
+			RB_LoadMatrix( drawSurf->space->modelViewMatrix, GL_MODELVIEW );
 		}
 
 		if ( drawSurf->space->weaponDepthHack ) {
@@ -256,7 +284,7 @@ void RB_RenderDrawSurfListWithFunction( drawSurf_t **drawSurfs, int numDrawSurfs
 		// change the scissor if needed
 		if ( r_useScissor.GetBool() && !backEnd.currentScissor.Equals( drawSurf->scissorRect ) ) {
 			backEnd.currentScissor = drawSurf->scissorRect;
-			qglScissor( backEnd.viewDef->viewport.x1 + backEnd.currentScissor.x1,
+			RB_SetScissor( backEnd.viewDef->viewport.x1 + backEnd.currentScissor.x1,
 				backEnd.viewDef->viewport.y1 + backEnd.currentScissor.y1,
 				backEnd.currentScissor.x2 + 1 - backEnd.currentScissor.x1,
 				backEnd.currentScissor.y2 + 1 - backEnd.currentScissor.y1 );
@@ -287,7 +315,7 @@ void RB_RenderDrawSurfChainWithFunction( const drawSurf_t *drawSurfs,
 	for ( drawSurf = drawSurfs ; drawSurf ; drawSurf = drawSurf->nextOnLight ) {
 		// change the matrix if needed
 		if ( drawSurf->space != backEnd.currentSpace ) {
-			qglLoadMatrixf( drawSurf->space->modelViewMatrix );
+			RB_LoadMatrix( drawSurf->space->modelViewMatrix, GL_MODELVIEW );
 		}
 
 		if ( drawSurf->space->weaponDepthHack ) {
@@ -301,7 +329,7 @@ void RB_RenderDrawSurfChainWithFunction( const drawSurf_t *drawSurfs,
 		// change the scissor if needed
 		if ( r_useScissor.GetBool() && !backEnd.currentScissor.Equals( drawSurf->scissorRect ) ) {
 			backEnd.currentScissor = drawSurf->scissorRect;
-			qglScissor( backEnd.viewDef->viewport.x1 + backEnd.currentScissor.x1,
+			RB_SetScissor( backEnd.viewDef->viewport.x1 + backEnd.currentScissor.x1,
 				backEnd.viewDef->viewport.y1 + backEnd.currentScissor.y1,
 				backEnd.currentScissor.x2 + 1 - backEnd.currentScissor.x1,
 				backEnd.currentScissor.y2 + 1 - backEnd.currentScissor.y1 );
@@ -365,7 +393,7 @@ void RB_LoadShaderTextureMatrix( const float *shaderRegisters, const textureStag
 
 	RB_GetShaderTextureMatrix( shaderRegisters, texture, matrix );
 	qglMatrixMode( GL_TEXTURE );
-	qglLoadMatrixf( matrix );
+	RB_LoadMatrix( matrix, GL_TEXTURE );
 	qglMatrixMode( GL_MODELVIEW );
 }
 
@@ -408,74 +436,76 @@ void RB_BindVariableStageImage( const textureStage_t *texture, const float *shad
 RB_BindStageTexture
 ======================
 */
-void RB_BindStageTexture( const float *shaderRegisters, const textureStage_t *texture, const drawSurf_t *surf ) {
-	// image
-	RB_BindVariableStageImage( texture, shaderRegisters );
-
-	// texgens
-	if ( texture->texgen == TG_DIFFUSE_CUBE ) {
-		qglTexCoordPointer( 3, GL_FLOAT, sizeof( idDrawVert ), ((idDrawVert *)vertexCache.Position( surf->geo->ambientCache ))->normal.ToFloatPtr() );
-	}
-	if ( texture->texgen == TG_SKYBOX_CUBE || texture->texgen == TG_WOBBLESKY_CUBE ) {
-		qglTexCoordPointer( 3, GL_FLOAT, 0, vertexCache.Position( surf->dynamicTexCoords ) );
-	}
-	if ( texture->texgen == TG_REFLECT_CUBE ) {
-		qglEnable( GL_TEXTURE_GEN_S );
-		qglEnable( GL_TEXTURE_GEN_T );
-		qglEnable( GL_TEXTURE_GEN_R );
-		qglTexGenf( GL_S, GL_TEXTURE_GEN_MODE, GL_REFLECTION_MAP_EXT );
-		qglTexGenf( GL_T, GL_TEXTURE_GEN_MODE, GL_REFLECTION_MAP_EXT );
-		qglTexGenf( GL_R, GL_TEXTURE_GEN_MODE, GL_REFLECTION_MAP_EXT );
-		qglEnableClientState( GL_NORMAL_ARRAY );
-		qglNormalPointer( GL_FLOAT, sizeof( idDrawVert ), ((idDrawVert *)vertexCache.Position( surf->geo->ambientCache ))->normal.ToFloatPtr() );
-
-		qglMatrixMode( GL_TEXTURE );
-		float	mat[16];
-
-		R_TransposeGLMatrix( backEnd.viewDef->worldSpace.modelViewMatrix, mat );
-
-		qglLoadMatrixf( mat );
-		qglMatrixMode( GL_MODELVIEW );
-	}
-
-	// matrix
-	if ( texture->hasMatrix ) {
-		RB_LoadShaderTextureMatrix( shaderRegisters, texture );
-	}
-}
+// SM: Comment this out as it's never used (likely for non-shader backend)
+// void RB_BindStageTexture( const float *shaderRegisters, const textureStage_t *texture, const drawSurf_t *surf ) {
+// 	// image
+// 	RB_BindVariableStageImage( texture, shaderRegisters );
+// 
+// 	// texgens
+// 	if ( texture->texgen == TG_DIFFUSE_CUBE ) {
+// 		qglTexCoordPointer( 3, GL_FLOAT, sizeof( idDrawVert ), ((idDrawVert *)vertexCache.Position( surf->geo->ambientCache ))->normal.ToFloatPtr() );
+// 	}
+// 	if ( texture->texgen == TG_SKYBOX_CUBE || texture->texgen == TG_WOBBLESKY_CUBE ) {
+// 		qglTexCoordPointer( 3, GL_FLOAT, 0, vertexCache.Position( surf->dynamicTexCoords ) );
+// 	}
+// 	if ( texture->texgen == TG_REFLECT_CUBE ) {
+// 		qglEnable( GL_TEXTURE_GEN_S );
+// 		qglEnable( GL_TEXTURE_GEN_T );
+// 		qglEnable( GL_TEXTURE_GEN_R );
+// 		qglTexGenf( GL_S, GL_TEXTURE_GEN_MODE, GL_REFLECTION_MAP_EXT );
+// 		qglTexGenf( GL_T, GL_TEXTURE_GEN_MODE, GL_REFLECTION_MAP_EXT );
+// 		qglTexGenf( GL_R, GL_TEXTURE_GEN_MODE, GL_REFLECTION_MAP_EXT );
+// 		qglEnableClientState( GL_NORMAL_ARRAY );
+// 		qglNormalPointer( GL_FLOAT, sizeof( idDrawVert ), ((idDrawVert *)vertexCache.Position( surf->geo->ambientCache ))->normal.ToFloatPtr() );
+// 
+// 		qglMatrixMode( GL_TEXTURE );
+// 		float	mat[16];
+// 
+// 		R_TransposeGLMatrix( backEnd.viewDef->worldSpace.modelViewMatrix, mat );
+// 
+// 		RB_LoadMatrix( mat, GL_TEXTURE );
+// 		qglMatrixMode( GL_MODELVIEW );
+// 	}
+// 
+// 	// matrix
+// 	if ( texture->hasMatrix ) {
+// 		RB_LoadShaderTextureMatrix( shaderRegisters, texture );
+// 	}
+// }
 
 /*
 ======================
 RB_FinishStageTexture
 ======================
 */
-void RB_FinishStageTexture( const textureStage_t *texture, const drawSurf_t *surf ) {
-	if ( texture->texgen == TG_DIFFUSE_CUBE || texture->texgen == TG_SKYBOX_CUBE
-		|| texture->texgen == TG_WOBBLESKY_CUBE ) {
-		qglTexCoordPointer( 2, GL_FLOAT, sizeof( idDrawVert ),
-			(void *)&(((idDrawVert *)vertexCache.Position( surf->geo->ambientCache ))->st) );
-	}
-
-	if ( texture->texgen == TG_REFLECT_CUBE ) {
-		qglDisable( GL_TEXTURE_GEN_S );
-		qglDisable( GL_TEXTURE_GEN_T );
-		qglDisable( GL_TEXTURE_GEN_R );
-		qglTexGenf( GL_S, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
-		qglTexGenf( GL_T, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
-		qglTexGenf( GL_R, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
-		qglDisableClientState( GL_NORMAL_ARRAY );
-
-		qglMatrixMode( GL_TEXTURE );
-		qglLoadIdentity();
-		qglMatrixMode( GL_MODELVIEW );
-	}
-
-	if ( texture->hasMatrix ) {
-		qglMatrixMode( GL_TEXTURE );
-		qglLoadIdentity();
-		qglMatrixMode( GL_MODELVIEW );
-	}
-}
+// SM: Comment this out as it's never used (likely for non-shader backend)
+// void RB_FinishStageTexture( const textureStage_t *texture, const drawSurf_t *surf ) {
+// 	if ( texture->texgen == TG_DIFFUSE_CUBE || texture->texgen == TG_SKYBOX_CUBE
+// 		|| texture->texgen == TG_WOBBLESKY_CUBE ) {
+// 		qglTexCoordPointer( 2, GL_FLOAT, sizeof( idDrawVert ),
+// 			(void *)&(((idDrawVert *)vertexCache.Position( surf->geo->ambientCache ))->st) );
+// 	}
+// 
+// 	if ( texture->texgen == TG_REFLECT_CUBE ) {
+// 		qglDisable( GL_TEXTURE_GEN_S );
+// 		qglDisable( GL_TEXTURE_GEN_T );
+// 		qglDisable( GL_TEXTURE_GEN_R );
+// 		qglTexGenf( GL_S, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
+// 		qglTexGenf( GL_T, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
+// 		qglTexGenf( GL_R, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
+// 		qglDisableClientState( GL_NORMAL_ARRAY );
+// 
+// 		qglMatrixMode( GL_TEXTURE );
+// 		RB_LoadMatrixIdentity( GL_TEXTURE );
+// 		qglMatrixMode( GL_MODELVIEW );
+// 	}
+// 
+// 	if ( texture->hasMatrix ) {
+// 		qglMatrixMode( GL_TEXTURE );
+// 		RB_LoadMatrixIdentity( GL_TEXTURE );
+// 		qglMatrixMode( GL_MODELVIEW );
+// 	}
+// }
 
 
 
@@ -559,7 +589,7 @@ void RB_BeginDrawingView (void) {
 
 	// set the modelview matrix for the viewer
 	qglMatrixMode(GL_PROJECTION);
-	qglLoadMatrixf( viewDef->projectionMatrix );
+	RB_LoadMatrix( backEnd.viewDef->projectionMatrix, GL_PROJECTION );
 	qglMatrixMode(GL_MODELVIEW);
 
 	// set the window clipping
@@ -569,7 +599,7 @@ void RB_BeginDrawingView (void) {
 		viewDef->viewport.y2 + 1 - viewDef->viewport.y1 );
 
 	// the scissor may be smaller than the viewport for subviews
-	qglScissor( tr.viewportOffset[0] + viewDef->viewport.x1 + viewDef->scissor.x1,
+	RB_SetScissor( tr.viewportOffset[0] + viewDef->viewport.x1 + viewDef->scissor.x1,
 		tr.viewportOffset[1] + viewDef->viewport.y1 + viewDef->scissor.y1,
 		viewDef->scissor.x2 + 1 - viewDef->scissor.x1,
 		viewDef->scissor.y2 + 1 - viewDef->scissor.y1 );
@@ -719,13 +749,13 @@ void RB_CreateSingleDrawInteractions( const drawSurf_t *surf, void (*DrawInterac
 	// change the matrix and light projection vectors if needed
 	if ( surf->space != backEnd.currentSpace ) {
 		backEnd.currentSpace = surf->space;
-		qglLoadMatrixf( surf->space->modelViewMatrix );
+		RB_LoadMatrix( surf->space->modelViewMatrix, GL_MODELVIEW );
 	}
 
 	// change the scissor if needed
 	if ( r_useScissor.GetBool() && !backEnd.currentScissor.Equals( surf->scissorRect ) ) {
 		backEnd.currentScissor = surf->scissorRect;
-		qglScissor( backEnd.viewDef->viewport.x1 + backEnd.currentScissor.x1,
+		RB_SetScissor( backEnd.viewDef->viewport.x1 + backEnd.currentScissor.x1,
 			backEnd.viewDef->viewport.y1 + backEnd.currentScissor.y1,
 			backEnd.currentScissor.x2 + 1 - backEnd.currentScissor.x1,
 			backEnd.currentScissor.y2 + 1 - backEnd.currentScissor.y1 );
@@ -748,6 +778,9 @@ void RB_CreateSingleDrawInteractions( const drawSurf_t *surf, void (*DrawInterac
 	inter.localLightOrigin[3] = 0;
 	inter.localViewOrigin[3] = 1;
 	inter.ambientLight = lightShader->IsAmbientLight();
+
+	// <blendo> eric: ambient saturates angle lighting, light value = max( angle intensity value , ambient value)
+	inter.isAmbientLight = vLight->lightDef->parms.isAmbient ? idVec4(1.0f, 1.0f, 1.0f, 1.0f) : idVec4(0.0f, 0.0f, 0.0f, 0.0f);
 
 	// the base projections may be modified by texture matrix on light stages
 	idPlane lightProject[4];

@@ -101,6 +101,16 @@ int idImage::BitsForInternalFormat( int internalFormat ) const {
 		return 4;			// not sure
 	case GL_COMPRESSED_RGBA_ARB:
 		return 8;			// not sure
+	case GL_DEPTH_COMPONENT:
+		return 8;
+	case GL_DEPTH24_STENCIL8:
+		return 32;
+	case GL_R8UI:
+		return 8;
+	case GL_RGB:
+		return 24;
+	case GL_RGBA:
+		return 32;
 	default:
 		common->Error( "R_BitsForInternalFormat: BAD FORMAT:%i", internalFormat );
 	}
@@ -263,6 +273,11 @@ GLenum idImage::SelectInternalFormat( const byte **dataPtrs, int numDataPtrs, in
 		needAlpha = false;
 	} else {
 		needAlpha = true;
+	}
+
+	// SM: Check for depth format
+	if ( minimumDepth == TD_DEPTH ) {
+		return GL_DEPTH_COMPONENT;
 	}
 
 	// catch normal maps first
@@ -542,13 +557,16 @@ void idImage::GenerateImage( const byte *pic, int width, int height,
 		preserveBorder = false;
 	}
 
+	// SM: Allow non-power of 2 textures if needed
+	scaled_width = width;
+	scaled_height = height;
 	// make sure it is a power of 2
-	scaled_width = MakePowerOfTwo( width );
-	scaled_height = MakePowerOfTwo( height );
-
-	if ( scaled_width != width || scaled_height != height ) {
-		common->Error( "R_CreateImage: not a power of 2 image" );
-	}
+// 	scaled_width = MakePowerOfTwo( width );
+// 	scaled_height = MakePowerOfTwo( height );
+//
+// 	if ( scaled_width != width || scaled_height != height ) {
+// 		common->Error( "R_CreateImage: not a power of 2 image" );
+// 	}
 
 	// Optionally modify our width/height based on options/hardware
 	GetDownsize( scaled_width, scaled_height );
@@ -560,6 +578,12 @@ void idImage::GenerateImage( const byte *pic, int width, int height,
 
 	// select proper internal format before we resample
 	internalFormat = SelectInternalFormat( &pic, 1, width, height, depth );
+	// SM: Rather than hardcoding GL_RGBA use this data format variable
+	int dataFormat = GL_RGBA;
+	if ( internalFormat == GL_DEPTH_COMPONENT )
+	{
+		dataFormat = GL_DEPTH_COMPONENT;
+	}
 
 	// copy or resample data as appropriate for first MIP level
 	if ( ( scaled_width == width ) && ( scaled_height == height ) ) {
@@ -677,7 +701,7 @@ void idImage::GenerateImage( const byte *pic, int width, int height,
 		*/
 		UploadCompressedNormalMap( scaled_width, scaled_height, scaledBuffer, 0 );
 	} else {
-		qglTexImage2D( GL_TEXTURE_2D, 0, internalFormat, scaled_width, scaled_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, scaledBuffer );
+		qglTexImage2D( GL_TEXTURE_2D, 0, internalFormat, scaled_width, scaled_height, 0, dataFormat, GL_UNSIGNED_BYTE, scaledBuffer );
 	}
 
 	// create and upload the mip map levels, which we do in all cases, even if we don't think they are needed
@@ -713,7 +737,7 @@ void idImage::GenerateImage( const byte *pic, int width, int height,
 			UploadCompressedNormalMap( scaled_width, scaled_height, scaledBuffer, miplevel );
 		} else {
 			qglTexImage2D( GL_TEXTURE_2D, miplevel, internalFormat, scaled_width, scaled_height,
-				0, GL_RGBA, GL_UNSIGNED_BYTE, scaledBuffer );
+				0, dataFormat, GL_UNSIGNED_BYTE, scaledBuffer );
 		}
 	}
 
@@ -916,6 +940,7 @@ void idImage::GenerateCubeImage( const byte *pic[6], int size,
 	// no other clamp mode makes sense
 	qglTexParameteri(GL_TEXTURE_CUBE_MAP_EXT, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	qglTexParameteri(GL_TEXTURE_CUBE_MAP_EXT, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	qglTexParameteri(GL_TEXTURE_CUBE_MAP_EXT, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
 	// set the minimize / maximize filtering
 	switch( filter ) {
@@ -1914,16 +1939,18 @@ void idImage::CopyFramebuffer( int x, int y, int imageWidth, int imageHeight, bo
 		imageHeight = 512;
 	}
 
+	// SM: Don't force power of two anymore
 	// if the size isn't a power of 2, the image must be increased in size
 	int	potWidth, potHeight;
 
-	potWidth = MakePowerOfTwo( imageWidth );
-	potHeight = MakePowerOfTwo( imageHeight );
+	potWidth = imageWidth; // MakePowerOfTwo(imageWidth);
+	potHeight = imageHeight; // MakePowerOfTwo(imageHeight);
 
-	GetDownsize( imageWidth, imageHeight );
-	GetDownsize( potWidth, potHeight );
+	//GetDownsize( imageWidth, imageHeight );
+	//GetDownsize( potWidth, potHeight );
 
-	qglReadBuffer( GL_BACK );
+	// SM: We don't seem to need to call read buffer here anymore, causes a glError
+	//qglReadBuffer( GL_BACK );
 
 	// only resize if the current dimensions can't hold it at all,
 	// otherwise subview renderings could thrash this
@@ -1988,30 +2015,26 @@ void idImage::CopyDepthbuffer( int x, int y, int imageWidth, int imageHeight, bo
 
 	potWidth = MakePowerOfTwo( imageWidth );
 	potHeight = MakePowerOfTwo( imageHeight );
-	GetDownsize( imageWidth, imageHeight );
-	GetDownsize( potWidth, potHeight );
-	// Ensure we are reading from the back buffer:
-	qglReadBuffer( GL_BACK );
-	// only resize if the current dimensions can't hold it at all,
-	// otherwise subview renderings could thrash this
-	if ( ( useOversizedBuffer && ( uploadWidth < potWidth || uploadHeight < potHeight ) ) || ( !useOversizedBuffer && ( uploadWidth != potWidth || uploadHeight != potHeight ) ) )
-	{
+
+	if ( uploadWidth != potWidth || uploadHeight != potHeight ) {
 		uploadWidth = potWidth;
 		uploadHeight = potHeight;
-		// This bit runs once only at map start, because it tests whether the image is too small to hold the screen.
-		// It resizes the texture to a power of two that can hold the screen,
-		// and then subsequent captures to the texture put the depth component into the RGB channels
-		qglTexImage2D( GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24_ARB, potWidth, potHeight, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL );
-		qglCopyTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, x, y, imageWidth, imageHeight );
-
+		if ( potWidth == imageWidth && potHeight == imageHeight ) {
+			qglCopyTexImage2D( GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, x, y, imageWidth, imageHeight, 0 );
+		} else {
+			// we need to create a dummy image with power of two dimensions,
+			// then do a qglCopyTexSubImage2D of the data we want
+			qglTexImage2D( GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, potWidth, potHeight, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL );
+			qglCopyTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, x, y, imageWidth, imageHeight );
+		}
 	} else {
 		// otherwise, just subimage upload it so that drivers can tell we are going to be changing
 		// it and don't try and do a texture compression or some other silliness
 		qglCopyTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, x, y, imageWidth, imageHeight );
 	}
 
-	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
-	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
+//	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+//	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
 
 	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
 	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
@@ -2243,6 +2266,9 @@ void idImage::Print() const {
 	case GL_COMPRESSED_RGBA_ARB:
 		common->Printf( "RGBAC " );
 		break;
+	case GL_DEPTH_COMPONENT:
+		common->Printf( "Depth " );
+		break;
 	case 0:
 		common->Printf( "      " );
 		break;
@@ -2273,3 +2299,32 @@ void idImage::Print() const {
 
 	common->Printf( " %s\n", imgName.c_str() );
 }
+
+// FIXME: mel <glsl>: not in scope do this later tho!
+#if 0
+// SM: For debugging frame captures
+void idImage::SetDebugLabel() {
+#ifdef _DEBUG
+	if ( glConfig.khrDebugAvailable && r_debugGLContext.GetBool() ) {
+		qglObjectLabel( GL_TEXTURE, texnum, imgName.Length(), imgName.c_str() );
+	}
+#endif
+}
+
+//blendo eric: image cache for light detection
+byte * idImage::GetImageCache(bool forceUpdate) {
+	if (blendoCache == NULL) {
+		blendoCache = new byte[uploadWidth * uploadHeight * 4];
+		forceUpdate = true;
+	}
+
+	if (forceUpdate) {
+		GLenum glError = renderSystem->GetImageBytes(this, &blendoCache);
+		if (glError != GL_NO_ERROR) {
+			common->Warning("idImage::GetImageCache: encountered GL error code %i while getting bytes on image %s. Skipping...\n", (int)glError, imgName.c_str());
+		}
+	}
+
+	return blendoCache;
+}
+#endif

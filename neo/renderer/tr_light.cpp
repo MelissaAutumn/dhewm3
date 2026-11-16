@@ -665,7 +665,8 @@ R_LinkLightSurf
 =================
 */
 void R_LinkLightSurf( const drawSurf_t **link, const srfTriangles_t *tri, const viewEntity_t *space,
-				   const idRenderLightLocal *light, const idMaterial *shader, const idScreenRect &scissor, bool viewInsideShadow ) {
+				   const idRenderLightLocal *light, const idMaterial *shader, const idScreenRect &scissor, bool viewInsideShadow,
+				   const float * customShaderParms) {
 	drawSurf_t		*drawSurf;
 
 	if ( !space ) {
@@ -685,7 +686,9 @@ void R_LinkLightSurf( const drawSurf_t **link, const srfTriangles_t *tri, const 
 		drawSurf->dsFlags |= DSF_VIEW_INSIDE_SHADOW;
 	}
 
-	if ( !shader ) {
+	if (customShaderParms) {
+		drawSurf->shaderRegisters = customShaderParms;
+	} else if ( !shader ) {
 		// shadows won't have a shader
 		drawSurf->shaderRegisters = NULL;
 	} else {
@@ -695,10 +698,13 @@ void R_LinkLightSurf( const drawSurf_t **link, const srfTriangles_t *tri, const 
 			// this shader has only constants for parameters
 			drawSurf->shaderRegisters = constRegs;
 		} else {
+
 			// FIXME: share with the ambient surface?
-			float *regs = (float *)R_FrameAlloc( shader->GetNumRegisters() * sizeof( float ) );
+			// blendo eric todo: above note probably right but maybe unecessary?
+			float *regs = (float *)R_FrameAlloc(shader->GetNumRegisters() * sizeof(float));
 			drawSurf->shaderRegisters = regs;
-			shader->EvaluateRegisters( regs, space->entityDef->parms.shaderParms, tr.viewDef, space->entityDef->parms.referenceSound );
+
+			shader->EvaluateRegisters(regs, space->entityDef->parms.shaderParms, tr.viewDef, space->entityDef->parms.referenceSound, &space->entityDef->parms.origin);
 		}
 
 		// calculate the specular coordinates if we aren't using vertex programs
@@ -1207,6 +1213,16 @@ void R_AddDrawSurf( const srfTriangles_t *tri, const viewEntity_t *space, const 
 	drawSurf->material = shader;
 	drawSurf->scissorRect = scissor;
 	drawSurf->sort = shader->GetSort() + tr.sortOffset;
+	drawSurf->dsFlags = 0;
+
+	if (space->entityDef && space->entityDef->parms.fragmentMapOverride)
+	{
+		drawSurf->fragmentMapOverride = space->entityDef->parms.fragmentMapOverride;
+	}
+	else
+	{
+		drawSurf->fragmentMapOverride = NULL;
+	}
 
 	if ( soft_particle_radius != -1.0f )	// #3878
 	{
@@ -1259,7 +1275,7 @@ void R_AddDrawSurf( const srfTriangles_t *tri, const viewEntity_t *space, const 
 			// evaluate the reference shader to find our shader parms
 			const shaderStage_t *pStage;
 
-			renderEntity->referenceShader->EvaluateRegisters( refRegs, renderEntity->shaderParms, tr.viewDef, renderEntity->referenceSound );
+			renderEntity->referenceShader->EvaluateRegisters( refRegs, renderEntity->shaderParms, tr.viewDef, renderEntity->referenceSound, &renderEntity->origin );
 			pStage = renderEntity->referenceShader->GetStage(0);
 
 			memcpy( generatedShaderParms, renderEntity->shaderParms, sizeof( generatedShaderParms ) );
@@ -1284,7 +1300,7 @@ void R_AddDrawSurf( const srfTriangles_t *tri, const viewEntity_t *space, const 
 			tr.viewDef->renderView.time = game->GetTimeGroupTime( space->entityDef->parms.timeGroup );
 		}
 
-		shader->EvaluateRegisters( regs, shaderParms, tr.viewDef, renderEntity->referenceSound );
+		shader->EvaluateRegisters( regs, shaderParms, tr.viewDef, renderEntity->referenceSound, &renderEntity->origin );
 
 		if ( space->entityDef && space->entityDef->parms.timeGroup ) {
 			tr.viewDef->floatTime = oldFloatTime;
@@ -1343,6 +1359,11 @@ void R_AddDrawSurf( const srfTriangles_t *tri, const viewEntity_t *space, const 
 		tr.viewDef->renderView.time = oldTime;
 	}
 
+	// blendo eric setup temp frame surface references for fonts (and future other) interactions
+	if (drawSurf->material->TestMaterialFlag(MF_FONT)) {
+		tr.frameGuiSurfs.Append(drawSurf);
+	}
+
 	// we can't add subviews at this point, because that would
 	// increment tr.viewCount, messing up the rest of the surface
 	// adds for this view
@@ -1363,6 +1384,7 @@ static void R_AddAmbientDrawsurfs( viewEntity_t *vEntity ) {
 	srfTriangles_t		*tri;
 	idRenderModel		*model;
 	const idMaterial	*shader;
+	const idDeclSkin* customSkin;
 
 	def = vEntity->entityDef;
 
@@ -1389,15 +1411,25 @@ static void R_AddAmbientDrawsurfs( viewEntity_t *vEntity ) {
 		if ( !tri->numIndexes ) {
 			continue;
 		}
+
+		if ((tr.viewDef->isSubview || tr.viewDef->isMirror) && def->parms.overrideSkinInSubview != NULL)
+		{
+			customSkin = def->parms.overrideSkinInSubview;
+		}
+		else
+		{
+			customSkin = def->parms.customSkin;
+		}
+
 		shader = surf->shader;
-		shader = R_RemapShaderBySkin( shader, def->parms.customSkin, def->parms.customShader );
+		shader = R_RemapShaderBySkin( shader, customSkin, def->parms.customShader );
 
 		R_GlobalShaderOverride( &shader );
 
 		if ( !shader ) {
 			continue;
 		}
-		if ( !shader->IsDrawn() ) {
+		if ( !shader->IsDrawn() && !(shader->GetSurfaceFlags() & SURF_LIGHTPROBE)) {
 			continue;
 		}
 
@@ -1423,7 +1455,7 @@ static void R_AddAmbientDrawsurfs( viewEntity_t *vEntity ) {
 			}
 		}
 
-		if ( !R_CullLocalBox( tri->bounds, vEntity->modelMatrix, 5, tr.viewDef->frustum ) ) {
+		if ( !R_CullLocalBox( tri->bounds, vEntity->modelMatrix, 5, tr.viewDef->frustum, vEntity->entityDef->parms.noFrustumCull ) ) {
 
 			def->visibleCount = tr.viewCount;
 
@@ -1484,6 +1516,51 @@ idScreenRect R_CalcEntityScissorRectangle( viewEntity_t *vEntity ) {
 	return R_ScreenRectFromViewFrustumBounds( bounds );
 }
 
+
+
+//BFG
+viewEntity_t* R_SortViewEntities(viewEntity_t* vEntities) {
+	// We want to avoid having a single AddModel for something complex be
+	// the last thing processed and hurt the parallel occupancy, so
+	// sort dynamic models first, _area models second, then everything else.
+	viewEntity_t* dynamics = NULL;
+	viewEntity_t* areas = NULL;
+	viewEntity_t* others = NULL;
+	for (viewEntity_t* vEntity = vEntities; vEntity != NULL; ) {
+		viewEntity_t* next = vEntity->next;
+		const idRenderModel* model = vEntity->entityDef->parms.hModel;
+		if (model->IsDynamicModel() != DM_STATIC) {
+			vEntity->next = dynamics;
+			dynamics = vEntity;
+		}
+		else if (model->IsStaticWorldModel()) {
+			vEntity->next = areas;
+			areas = vEntity;
+		}
+		else {
+			vEntity->next = others;
+			others = vEntity;
+		}
+		vEntity = next;
+	}
+	// concatenate the lists
+	viewEntity_t* all = others;
+	for (viewEntity_t* vEntity = areas; vEntity != NULL; ) {
+		viewEntity_t* next = vEntity->next;
+		vEntity->next = all;
+		all = vEntity;
+		vEntity = next;
+	}
+	for (viewEntity_t* vEntity = dynamics; vEntity != NULL; ) {
+		viewEntity_t* next = vEntity->next;
+		vEntity->next = all;
+		all = vEntity;
+		vEntity = next;
+	}
+	return all;
+}
+
+
 /*
 ===================
 R_AddModelSurfaces
@@ -1501,6 +1578,7 @@ void R_AddModelSurfaces( void ) {
 	idRenderModel		*model;
 
 	// clear the ambient surface list
+	tr.viewDef->viewEntitys = R_SortViewEntities(tr.viewDef->viewEntitys); //BFG
 	tr.viewDef->numDrawSurfs = 0;
 	tr.viewDef->maxDrawSurfs = 0;	// will be set to INITIAL_DRAWSURFS on R_AddDrawSurf
 
@@ -1555,7 +1633,7 @@ void R_AddModelSurfaces( void ) {
 		}
 
 		// add the ambient surface if it has a visible rectangle
-		if ( !vEntity->scissorRect.IsEmpty() ) {
+		if ( !vEntity->scissorRect.IsEmpty() || vEntity->entityDef->parms.noFrustumCull ) {
 			model = R_EntityDefDynamicModel( vEntity->entityDef );
 			if ( model == NULL || model->NumSurfaces() <= 0 ) {
 				if ( vEntity->entityDef->parms.timeGroup ) {
@@ -1585,6 +1663,11 @@ void R_AddModelSurfaces( void ) {
 				}
 			}
 		} else {
+			idList<trackedInteraction_t>* outgoingTrackedInteractions = nullptr;
+			bool shouldTrackInteractions = vEntity->entityDef->parms.trackInteractions && vEntity->entityDef->parms.interactionCallback;
+			if (shouldTrackInteractions)
+				outgoingTrackedInteractions = new idList<trackedInteraction_t>();
+
 			// all empty interactions are at the end of the list so once the
 			// first is encountered all the remaining interactions are empty
 			for ( inter = vEntity->entityDef->firstInteraction; inter != NULL && !inter->IsEmpty(); inter = next ) {
@@ -1597,6 +1680,62 @@ void R_AddModelSurfaces( void ) {
 					continue;
 				}
 				inter->AddActiveInteraction();
+				
+				// The entity wants to know about this interaction. 
+				// Determine if we're actually being lit, and if so, report it using the common interface (a simple struct)
+				if (shouldTrackInteractions && inter->lightDef->parms.affectLightMeter)
+				{
+					bool isLit = false;
+					surfaceInteraction_t* surfaces = inter->surfaces;
+					for (int i = 0; i < inter->numSurfaces; i++)
+					{
+						surfaceInteraction_t* surf = &surfaces[i];
+						if (surf->lightTris != NULL && surf->lightTris != LIGHT_TRIS_DEFERRED)
+						{
+							isLit = true;
+							break;
+						}
+					}
+					if (isLit)
+					{
+						renderLight_t parms = inter->lightDef->parms;
+						idVec3 radius = parms.lightRadius;
+						if (!parms.pointLight)
+						{
+							// Feed spotlight-relevant info through via the radius (which otherwise has no meaning for a spotlight)
+							radius.x = parms.right.x;
+							radius.y = parms.up.y;
+							radius.z = parms.target.z;
+						}
+
+						trackedInteraction_t outgoing = {
+							inter->numSurfaces,					// numSurfaces
+							parms.origin,						// lightOrigin
+							parms.lightCenter,					// lightCenter
+							parms.axis,							// lightAxis
+							radius,								// lightRadius
+							!parms.noShadows,					// lightCastsShadows
+							parms.parallel,						// lightIsParallel
+							!parms.pointLight,					// lightIsProjected
+							inter->lightDef->falloffImage,		// lightFalloff
+							inter->lightDef->lightShader,		// lightShader
+							{
+									parms.shaderParms[0],		// colour[0]
+									parms.shaderParms[1],		// colour[1]
+									parms.shaderParms[2],		// colour[2]
+							}
+						};
+						outgoingTrackedInteractions->Append(outgoing);
+					}
+				}
+			}
+
+			if (shouldTrackInteractions)
+			{
+				// The entity wants to know about its interactions, so we update it with the interaction list.
+				// Make sure the interaction callback is a real method!
+				vEntity->entityDef->parms.interactionCallback(&vEntity->entityDef->parms, outgoingTrackedInteractions);
+				delete outgoingTrackedInteractions; // Make sure to clean this up afterwards
 			}
 		}
 
@@ -1616,8 +1755,13 @@ R_RemoveUnecessaryViewLights
 void R_RemoveUnecessaryViewLights( void ) {
 	viewLight_t		*vLight;
 
+	int numViewLights = 0; //BFG/HASTE
+
 	// go through each visible light
 	for ( vLight = tr.viewDef->viewLights ; vLight ; vLight = vLight->next ) {
+
+		numViewLights++; //BFG/HASTE
+
 		// if the light didn't have any lit surfaces visible, there is no need to
 		// draw any of the shadows.  We still keep the vLight for debugging
 		// draws
@@ -1662,4 +1806,38 @@ void R_RemoveUnecessaryViewLights( void ) {
 			vLight->scissorRect.Intersect( surfRect );
 		}
 	}
+
+
+	//From BFG / HASTE.
+
+	// sort the viewLights list so the largest lights come first, which will reduce
+	// the chance of GPU pipeline bubbles
+	struct sortLight_t {
+		viewLight_t *	vLight;
+		int				screenArea;
+		static int sort(const void * a, const void * b) {
+			return ((sortLight_t *)a)->screenArea - ((sortLight_t *)b)->screenArea;
+		}
+	};
+	sortLight_t * sortLights = (sortLight_t *)_alloca(sizeof(sortLight_t) * numViewLights);
+	int	numSortLightsFilled = 0;
+	for (viewLight_t * vLight = tr.viewDef->viewLights; vLight != NULL; vLight = vLight->next) {
+		sortLights[numSortLightsFilled].vLight = vLight;
+		sortLights[numSortLightsFilled].screenArea = vLight->scissorRect.GetArea();
+		numSortLightsFilled++;
+	}
+
+	qsort(sortLights, numSortLightsFilled, sizeof(sortLights[0]), sortLight_t::sort);
+
+	// rebuild the linked list in order
+	tr.viewDef->viewLights = NULL;
+	for (int i = 0; i < numSortLightsFilled; i++) {
+		sortLights[i].vLight->next = tr.viewDef->viewLights;
+		tr.viewDef->viewLights = sortLights[i].vLight;
+	}
+
+
+
+
+
 }

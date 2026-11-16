@@ -127,14 +127,14 @@ RB_SimpleSurfaceSetup
 void RB_SimpleSurfaceSetup( const drawSurf_t *drawSurf ) {
 	// change the matrix if needed
 	if ( drawSurf->space != backEnd.currentSpace ) {
-		qglLoadMatrixf( drawSurf->space->modelViewMatrix );
+		RB_LoadMatrix( drawSurf->space->modelViewMatrix, GL_MODELVIEW );
 		backEnd.currentSpace = drawSurf->space;
 	}
 
 	// change the scissor if needed
 	if ( r_useScissor.GetBool() && !backEnd.currentScissor.Equals( drawSurf->scissorRect ) ) {
 		backEnd.currentScissor = drawSurf->scissorRect;
-		qglScissor( backEnd.viewDef->viewport.x1 + backEnd.currentScissor.x1,
+		RB_SetScissor( backEnd.viewDef->viewport.x1 + backEnd.currentScissor.x1,
 			backEnd.viewDef->viewport.y1 + backEnd.currentScissor.y1,
 			backEnd.currentScissor.x2 + 1 - backEnd.currentScissor.x1,
 			backEnd.currentScissor.y2 + 1 - backEnd.currentScissor.y1 );
@@ -148,10 +148,10 @@ RB_SimpleWorldSetup
 */
 void RB_SimpleWorldSetup( void ) {
 	backEnd.currentSpace = &backEnd.viewDef->worldSpace;
-	qglLoadMatrixf( backEnd.viewDef->worldSpace.modelViewMatrix );
+	RB_LoadMatrix( backEnd.viewDef->worldSpace.modelViewMatrix, GL_MODELVIEW );
 
 	backEnd.currentScissor = backEnd.viewDef->scissor;
-	qglScissor( backEnd.viewDef->viewport.x1 + backEnd.currentScissor.x1,
+	RB_SetScissor( backEnd.viewDef->viewport.x1 + backEnd.currentScissor.x1,
 		backEnd.viewDef->viewport.y1 + backEnd.currentScissor.y1,
 		backEnd.currentScissor.x2 + 1 - backEnd.currentScissor.x1,
 		backEnd.currentScissor.y2 + 1 - backEnd.currentScissor.y1 );
@@ -268,14 +268,17 @@ stencil buffer.  Stencil of 0 = black, 1 = red, 2 = green,
 static void R_ColorByStencilBuffer( void ) {
 	int		i;
 	static float	colors[8][3] = {
-		{0,0,0},
-		{1,0,0},
-		{0,1,0},
-		{0,0,1},
-		{0,1,1},
-		{1,0,1},
-		{1,1,0},
-		{1,1,1},
+
+		//BC light overlap debug now ranges from: Black (empty) -> Green (good) -> Yellow -> Red -> White (worst)
+
+		{0,0,0}, //ZERO lights. Black.
+		{0,1,0}, //ONE light. Green.
+		{.75f,1,0}, //TWO lights.  Yellow-green.
+		{1,1,0}, //THREE lights.  Yellow.
+		{1,.5f,0}, //FOUR lights. Orange.
+		{1,0,0}, //FIVE lights.  Red.
+		{1,.5f,1}, //SIX lights. Pink.
+		{1,1,1}, //MORE THAN SIX lights. White.
 	};
 
 	// clear color buffer to white (>6 passes)
@@ -437,6 +440,7 @@ Draw the depth buffer as colors
 ===================
 */
 void RB_ShowDepthBuffer( void ) {
+	void	*depthReadback;
 
 	if ( !r_showDepth.GetBool() ) {
 		return;
@@ -449,10 +453,25 @@ void RB_ShowDepthBuffer( void ) {
 	qglLoadIdentity();
 	qglOrtho( 0, 1, 0, 1, -1, 1 );
 	qglRasterPos2f( 0, 0 );
+	qglPopMatrix();
+	qglMatrixMode( GL_MODELVIEW );
+	qglPopMatrix();
 
 	GL_State( GLS_DEPTHFUNC_ALWAYS );
 	qglColor3f( 1, 1, 1 );
+	globalImages->BindNull();
+#if 1
+	depthReadback = R_StaticAlloc( glConfig.vidWidth * glConfig.vidHeight*4 );
+	memset( depthReadback, 0, glConfig.vidWidth * glConfig.vidHeight*4 );
 
+
+	qglReadPixels( 0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_DEPTH_COMPONENT , GL_FLOAT, depthReadback );
+
+	qglDrawPixels( glConfig.vidWidth, glConfig.vidHeight, GL_RGBA , GL_UNSIGNED_BYTE, depthReadback );
+	R_StaticFree( depthReadback );
+
+
+#else
 	bool haveDepthCapture = r_enableDepthCapture.GetInteger() == 1
 			|| (r_enableDepthCapture.GetInteger() == -1 && r_useSoftParticles.GetBool());
 
@@ -524,6 +543,9 @@ void RB_ShowDepthBuffer( void ) {
 		qglDrawPixels( glConfig.vidWidth, glConfig.vidHeight, GL_LUMINANCE, GL_FLOAT, depthReadback );
 		R_StaticFree( depthReadback );
 	}
+#endif
+
+
 }
 
 /*
@@ -562,6 +584,9 @@ void RB_ShowLightCount( void ) {
 
 	globalImages->defaultImage->Bind();
 
+	R_GLSL_SetActiveProgram("basicSurf");
+	R_GLSL_EnableVertexAttribs(1);
+
 	for ( vLight = backEnd.viewDef->viewLights ; vLight ; vLight = vLight->next ) {
 		for ( i = 0 ; i < 2 ; i++ ) {
 			for ( surf = i ? vLight->localInteractions: vLight->globalInteractions; surf; surf = (drawSurf_t *)surf->nextOnLight ) {
@@ -571,11 +596,14 @@ void RB_ShowLightCount( void ) {
 				}
 
 				const idDrawVert	*ac = (idDrawVert *)vertexCache.Position( surf->geo->ambientCache );
-				qglVertexPointer( 3, GL_FLOAT, sizeof( idDrawVert ), &ac->xyz );
+				qglVertexAttribPointer(0, 3, GL_FLOAT, false, sizeof(idDrawVert), ac->xyz.ToFloatPtr());
 				RB_DrawElementsWithCounters( surf->geo );
 			}
 		}
 	}
+
+	R_GLSL_DisableVertexAttribs();
+	R_GLSL_DisablePrograms();
 
 	// display the results
 	R_ColorByStencilBuffer();
@@ -619,7 +647,7 @@ void RB_ShowSilhouette( void ) {
 	qglDisable( GL_DEPTH_TEST );
 
 	RB_RenderDrawSurfListWithFunction( backEnd.viewDef->drawSurfs, backEnd.viewDef->numDrawSurfs,
-		RB_T_RenderTriangleSurface );
+		RB_T_RenderDebugTriangleSurface );
 
 
 	//
@@ -817,7 +845,7 @@ static void RB_ShowTris( drawSurf_t **drawSurfs, int numDrawSurfs ) {
 		break;
 	}
 
-	RB_RenderDrawSurfListWithFunction( drawSurfs, numDrawSurfs, RB_T_RenderTriangleSurface );
+	RB_RenderDrawSurfListWithFunction( drawSurfs, numDrawSurfs, RB_T_RenderDebugTriangleSurface );
 
 	qglEnable( GL_DEPTH_TEST );
 	qglDisable( GL_POLYGON_OFFSET_LINE );
@@ -918,7 +946,7 @@ static void RB_ShowViewEntitys( viewEntity_t *vModels ) {
 	for ( ; vModels ; vModels = vModels->next ) {
 		idBounds	b;
 
-		qglLoadMatrixf( vModels->modelViewMatrix );
+		RB_LoadMatrix( vModels->modelViewMatrix, GL_MODELVIEW );
 
 		if ( !vModels->entityDef ) {
 			continue;
@@ -2333,8 +2361,13 @@ void RB_TestImage( void ) {
 			tr.testImage = NULL;
 			return;
 		}
-		w = 0.25;
-		h = 0.25;
+		//w = 0.25;
+		//h = 0.25;
+
+		//bc
+		w = .5f;
+		h = .5f;
+
 	} else {
 		max = image->uploadWidth > image->uploadHeight ? image->uploadWidth : image->uploadHeight;
 
@@ -2387,7 +2420,7 @@ void RB_RenderDebugTools( drawSurf_t **drawSurfs, int numDrawSurfs ) {
 
 	GL_State( GLS_DEFAULT );
 	backEnd.currentScissor = backEnd.viewDef->scissor;
-	qglScissor( backEnd.viewDef->viewport.x1 + backEnd.currentScissor.x1,
+	RB_SetScissor( backEnd.viewDef->viewport.x1 + backEnd.currentScissor.x1,
 		backEnd.viewDef->viewport.y1 + backEnd.currentScissor.y1,
 		backEnd.currentScissor.x2 + 1 - backEnd.currentScissor.x1,
 		backEnd.currentScissor.y2 + 1 - backEnd.currentScissor.y1 );

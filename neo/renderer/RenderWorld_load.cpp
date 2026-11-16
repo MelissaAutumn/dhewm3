@@ -658,7 +658,9 @@ void idRenderWorldLocal::AddWorldModelEntities() {
 		for ( int j = 0; j < hModel->NumSurfaces(); j++ ) {
 			const modelSurface_t *surf = hModel->Surface( j );
 
-			if ( ( surf->shader->GetName() ==  idStr( "textures/smf/portal_sky" ) ) || ( surf->shader->GetName() == idStr( "textures/editor/portal_sky" ) ) ) { 
+			// SM: Enable the portal sky if the portal sky flag is set, rather than a hardcoded name
+			if ( surf->shader->IsPortalSky() ) {
+			//if ( surf->shader->GetName() == idStr( "textures/smf/portal_sky" ) ) {
 				def->needsPortalSky = true;
 			}
 		}

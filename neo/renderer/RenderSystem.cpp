@@ -250,7 +250,7 @@ static void R_CheckCvars( void ) {
 	if ( r_gammaInShader.IsModified() ) {
 		r_gammaInShader.ClearModified();
 		// reload shaders so they either add or remove the code for setting gamma/brightness in shader
-		R_ReloadARBPrograms_f( idCmdArgs() );
+		//R_ReloadARBPrograms_f( idCmdArgs() );
 
 		if ( r_gammaInShader.GetBool() ) {
 			common->Printf( "Will apply r_gamma and r_brightness in shaders\n" );
@@ -331,6 +331,13 @@ x/y/w/h are in the 0,0 to 640,480 range
 */
 void idRenderSystemLocal::DrawStretchPic( float x, float y, float w, float h, float s1, float t1, float s2, float t2, const idMaterial *material ) {
 	guiModel->DrawStretchPic( x, y, w, h, s1, t1, s2, t2, material );
+}
+
+
+void idRenderSystemLocal::DrawStretchPicRotated(float x, float y, float w, float h, float s0, float t0, float s1, float t1, const idMaterial *mat, float angle)
+{
+    // FIXME: mel <glsl>: out of scope
+	//guiModel->DrawStretchPicRotated(x, y, w, h, s0, t0, s1, t1, mat, angle);
 }
 
 /*
@@ -529,17 +536,17 @@ void idRenderSystemLocal::SetBackEndRenderer() {
 
 	backEndRenderer = BE_BAD;
 
-	if ( idStr::Icmp( r_renderer.GetString(), "arb2" ) == 0 ) {
-		if ( glConfig.allowARB2Path ) {
-			backEndRenderer = BE_ARB2;
+	if ( idStr::Icmp( r_renderer.GetString(), "glsl" ) == 0 ) {
+		if ( glConfig.allowGLSLPath ) {
+			backEndRenderer = BE_GLSL;
 		}
 	}
 
 	// fallback
 	if ( backEndRenderer == BE_BAD ) {
 		// choose the best
-		if ( glConfig.allowARB2Path ) {
-			backEndRenderer = BE_ARB2;
+		if ( glConfig.allowGLSLPath ) {
+			backEndRenderer = BE_GLSL;
 		}
 	}
 
@@ -547,10 +554,12 @@ void idRenderSystemLocal::SetBackEndRenderer() {
 	backEndRendererMaxLight = 1.0;
 
 	switch( backEndRenderer ) {
-	case BE_ARB2:
-		common->Printf( "using ARB2 renderSystem\n" );
+	case BE_GLSL:
+		common->Printf( "using GLSL renderSystem\n" );
 		backEndRendererHasVertexPrograms = true;
 		backEndRendererMaxLight = 999;
+		cmdSystem->AddCommand( "reloadGLSLprograms", R_ReloadGLSLPrograms_f, CMD_FL_RENDERER, "reloads GLSL programs" );
+		R_ReloadGLSLPrograms_f( idCmdArgs() );
 		break;
 	default:
 		common->FatalError( "SetbackEndRenderer: bad back end" );
@@ -640,6 +649,8 @@ void idRenderSystemLocal::BeginFrame( int windowWidth, int windowHeight ) {
 
 	// set the time for shader effects in 2D rendering
 	frameShaderTime = eventLoop->Milliseconds() * 0.001;
+
+	R_AddSetFrameBufferCmd(FrameBufferIds_t::FRAME_MAINVIEW);
 
 	//
 	// draw buffer stuff
@@ -917,6 +928,19 @@ void idRenderSystemLocal::CaptureRenderToImage( const char *imageName ) {
 	guiModel->Clear();
 }
 
+void idRenderSystemLocal::PrepareForPostProcessPass()
+{
+	if (!glConfig.isInitialized) {
+		return;
+	}
+	guiModel->EmitFullScreen();
+	guiModel->Clear();
+
+	R_AddPostEffectCmd();
+
+	guiModel->Clear();
+}
+
 /*
 ==============
 CaptureRenderToFile
@@ -1012,4 +1036,64 @@ bool idRenderSystemLocal::UploadImage( const char *imageName, const byte *data, 
 	image->UploadScratch( data, width, height );
 	image->SetImageFilterAndRepeat();
 	return true;
+}
+/*
+===============
+idRenderSystemLocal::GetImageBytes
+
+SW: Slightly hacky method for extracting the bytes of a known image from OpenGL.
+The caller is expected to allocate and manage the memory for it.
+===============
+*/
+int idRenderSystemLocal::GetImageBytes(idImage* img, byte** bytes)
+{
+	qglGetError(); // Clear error flags, if any
+	img->Bind();
+	qglGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, *bytes);
+	return qglGetError();
+}
+
+/*
+=============
+idRenderSystemLocal::PrimaryViewExists
+
+	SW: For the first few frames of game time, it seems that the primary view hasn't yet been initialized.
+	This causes problems for some features that jump the gun and try to use it to (e.g) translate worldspace to screenspace coordinates.
+	This method lets us safely check if the view is non-null and let the calling functions make up their mind about how to handle it.
+=============
+*/
+bool idRenderSystemLocal::PrimaryViewExists() {
+	return tr.primaryView != NULL;
+}
+
+void idRenderSystemLocal::UpdateScreenWidth()
+{
+	renderCrops[0].x = 0;
+	renderCrops[0].y = 0;
+	renderCrops[0].width = glConfig.vidWidth;
+	renderCrops[0].height = glConfig.vidHeight;
+	currentRenderCrop = 0;
+}
+
+/*
+=============
+R_AddSetFrameBufferCmd
+
+blendo eric: adds a frame buffer swap command (changes current render buffer if different)
+=============
+*/
+void	R_AddSetFrameBufferCmd(FrameBufferIds_t id) {
+	setFrameBufferCommand_t	*cmd;
+
+	cmd = (setFrameBufferCommand_t *)R_GetCommandBuffer(sizeof(*cmd));
+	cmd->commandId = RC_SET_FRAME_BUFFER;
+	cmd->frameBufferId = id;
+
+	tr.pc.c_frameBufferSwaps++; //naive, doesn't consider ignored swaps
+}
+
+void R_AddPostEffectCmd() {
+	postEffectCommand_t* cmd;
+	cmd = (postEffectCommand_t*)R_GetCommandBuffer(sizeof(*cmd));
+	cmd->commandId = RC_POST_EFFECT;
 }

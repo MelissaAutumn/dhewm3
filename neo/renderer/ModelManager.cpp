@@ -70,6 +70,7 @@ private:
 
 	static void				PrintModel_f( const idCmdArgs &args );
 	static void				ListModels_f( const idCmdArgs &args );
+	static void				ListModelsSimple_f(const idCmdArgs& args);
 	static void				ReloadModels_f( const idCmdArgs &args );
 	static void				TouchModel_f( const idCmdArgs &args );
 };
@@ -111,6 +112,20 @@ void idRenderModelManagerLocal::PrintModel_f( const idCmdArgs &args ) {
 	}
 
 	model->Print();
+}
+
+void idRenderModelManagerLocal::ListModelsSimple_f(const idCmdArgs& args) {
+	int inUse = 0;
+	for (int i = 0; i < localModelManager.models.Num(); i++) {
+		idRenderModel* model = localModelManager.models[i];
+
+		if (!model->IsLoaded()) {
+			continue;
+		}
+		common->Printf("%s\n", model->Name());
+		inUse++;
+	}
+	common->Printf("\n%i loaded models\n", inUse);
 }
 
 /*
@@ -209,6 +224,7 @@ idRenderModelManagerLocal::Init
 */
 void idRenderModelManagerLocal::Init() {
 	cmdSystem->AddCommand( "listModels", ListModels_f, CMD_FL_RENDERER, "lists all models" );
+	cmdSystem->AddCommand("listModelsSimple", ListModelsSimple_f, CMD_FL_RENDERER, "lists all models");
 	cmdSystem->AddCommand( "printModel", PrintModel_f, CMD_FL_RENDERER, "prints model info", idCmdSystem::ArgCompletion_ModelName );
 	cmdSystem->AddCommand( "reloadModels", ReloadModels_f, CMD_FL_RENDERER|CMD_FL_CHEAT, "reloads models" );
 	cmdSystem->AddCommand( "touchModel", TouchModel_f, CMD_FL_RENDERER, "touches a model", idCmdSystem::ArgCompletion_ModelName );

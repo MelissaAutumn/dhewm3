@@ -302,7 +302,7 @@ static srfTriangles_t *R_CreateLightTris( const idRenderEntityLocal *ent,
 	// it is debatable if non-shadowing lights should light back faces. we aren't at the moment
 	if ( r_lightAllBackFaces.GetBool() || light->lightShader->LightEffectsBackSides()
 			|| shader->ReceivesLightingOnBackSides()
-				|| ent->parms.noSelfShadow || ent->parms.noShadow  ) {
+				|| ent->parms.noSelfShadow || ent->parms.noShadow || light->parms.isAmbient) {
 		includeBackFaces = true;
 	} else {
 		includeBackFaces = false;
@@ -833,7 +833,7 @@ void idInteraction::CreateInteraction( const idRenderModel *model ) {
 	bounds = model->Bounds( &entityDef->parms );
 
 	// if it doesn't contact the light frustum, none of the surfaces will
-	if ( R_CullLocalBox( bounds, entityDef->modelMatrix, 6, lightDef->frustum ) ) {
+	if ( R_CullLocalBox( bounds, entityDef->modelMatrix, 6, lightDef->frustum, entityDef->parms.noFrustumCull ) ) {
 		MakeEmpty();
 		return;
 	}
@@ -860,6 +860,7 @@ void idInteraction::CreateInteraction( const idRenderModel *model ) {
 	for ( int c = 0 ; c < model->NumSurfaces() ; c++ ) {
 		const modelSurface_t	*surf;
 		srfTriangles_t	*tri;
+		const idDeclSkin* customSkin;
 
 		surf = model->Surface( c );
 
@@ -868,16 +869,26 @@ void idInteraction::CreateInteraction( const idRenderModel *model ) {
 			continue;
 		}
 
+		// SW: Force a selected skin in subviews so we can ensure arms are always drawn in mirrors (even if they aren't skinned for it right now)
+		if ((tr.viewDef->isSubview || tr.viewDef->isMirror) && entityDef->parms.overrideSkinInSubview != NULL)
+		{
+			customSkin = entityDef->parms.overrideSkinInSubview;
+		}
+		else
+		{
+			customSkin = entityDef->parms.customSkin;
+		}
+
 		// determine the shader for this surface, possibly by skinning
 		shader = surf->shader;
-		shader = R_RemapShaderBySkin( shader, entityDef->parms.customSkin, entityDef->parms.customShader );
+		shader = R_RemapShaderBySkin( shader, customSkin, entityDef->parms.customShader );
 
 		if ( !shader ) {
 			continue;
 		}
 
 		// try to cull each surface
-		if ( R_CullLocalBox( tri->bounds, entityDef->modelMatrix, 6, lightDef->frustum ) ) {
+		if ( R_CullLocalBox( tri->bounds, entityDef->modelMatrix, 6, lightDef->frustum, entityDef->parms.noFrustumCull ) ) {
 			continue;
 		}
 
@@ -891,7 +902,12 @@ void idInteraction::CreateInteraction( const idRenderModel *model ) {
 		sint->ambientTris = tri;
 
 		// "invisible ink" lights and shaders
-		if ( shader->Spectrum() != lightShader->Spectrum() ) {
+		//if ( shader->Spectrum() != lightShader->Spectrum() )
+		
+		// If the entity features a spectrum override, we want to apply it instead of whatever the shader spectrum is.
+		int spectrum = entityDef->parms.spectrum == SPECTRUM_UNSPECIFIED ? shader->Spectrum() : entityDef->parms.spectrum;
+		if (spectrum != lightShader->Spectrum() && (spectrum != 777 && lightShader->Spectrum() != 777 && lightDef->parms.spectrum != 777)) //BC light spectrum 777 ALWAYS illuminates everything, AND materials with spectrum 777 ALWAYS accept all lights.
+		{
 			continue;
 		}
 
@@ -1034,35 +1050,42 @@ void idInteraction::AddActiveInteraction( void ) {
 	vLight = lightDef->viewLight;
 	vEntity = entityDef->viewEntity;
 
-	// do not waste time culling the interaction frustum if there will be no shadows
-	if ( !HasShadows() ) {
+	// We can skip most of this block if we don't want to be culled
+	if (!vEntity->entityDef->parms.noFrustumCull)
+	{
+		// do not waste time culling the interaction frustum if there will be no shadows
+		if (!HasShadows()) {
 
-		// use the entity scissor rectangle
-		shadowScissor = vEntity->scissorRect;
+			// use the entity scissor rectangle
+			shadowScissor = vEntity->scissorRect;
 
-	// culling does not seem to be worth it for static world models
-	} else if ( entityDef->parms.hModel->IsStaticWorldModel() ) {
+			// culling does not seem to be worth it for static world models
+		}
+		else if (entityDef->parms.hModel->IsStaticWorldModel()) {
 
-		// use the light scissor rectangle
-		shadowScissor = vLight->scissorRect;
+			// use the light scissor rectangle
+			shadowScissor = vLight->scissorRect;
 
-	} else {
+		}
+		else {
 
-		// try to cull the interaction
-		// this will also cull the case where the light origin is inside the
-		// view frustum and the entity bounds are outside the view frustum
-		if ( CullInteractionByViewFrustum( tr.viewDef->viewFrustum ) ) {
-			return;
+			// try to cull the interaction
+			// this will also cull the case where the light origin is inside the
+			// view frustum and the entity bounds are outside the view frustum
+			if (CullInteractionByViewFrustum(tr.viewDef->viewFrustum) && !vEntity->entityDef->parms.noFrustumCull) {
+				return;
+			}
+
+			// calculate the shadow scissor rectangle
+			shadowScissor = CalcInteractionScissorRectangle(tr.viewDef->viewFrustum);
 		}
 
-		// calculate the shadow scissor rectangle
-		shadowScissor = CalcInteractionScissorRectangle( tr.viewDef->viewFrustum );
+		// get out before making the dynamic model if the shadow scissor rectangle is empty
+		if (shadowScissor.IsEmpty()) {
+			return;
+		}
 	}
-
-	// get out before making the dynamic model if the shadow scissor rectangle is empty
-	if ( shadowScissor.IsEmpty() ) {
-		return;
-	}
+	
 
 	// We will need the dynamic surface created to make interactions, even if the
 	// model itself wasn't visible.  This just returns a cached value after it
@@ -1072,8 +1095,12 @@ void idInteraction::AddActiveInteraction( void ) {
 		return;
 	}
 
+	// SW HACK: If we've swapped out our skin in a subview, 
+	// we need to re-create the interaction for the new skin. 
+	// Hence the latter half of the boolean expression below.
+
 	// the dynamic model may have changed since we built the surface list
-	if ( !IsDeferred() && entityDef->dynamicModelFrameCount != dynamicModelFrameCount ) {
+	if (( !IsDeferred() && entityDef->dynamicModelFrameCount != dynamicModelFrameCount ) || (tr.viewDef->isSubview && entityDef->parms.overrideSkinInSubview)) {
 		FreeSurfaces();
 	}
 	dynamicModelFrameCount = entityDef->dynamicModelFrameCount;
@@ -1158,7 +1185,12 @@ void idInteraction::AddActiveInteraction( void ) {
 
 					// there will only be localSurfaces if the light casts shadows and
 					// there are surfaces with NOSELFSHADOW
-					if ( sint->shader->Coverage() == MC_TRANSLUCENT ) {
+
+					// blendo eric: added blended lit interaction type separation
+					if (sint->shader->TestMaterialFlag(MF_BLENDLIT)) {
+						R_LinkLightSurf(&vLight->blendLitInteractions, lightTris,
+							vEntity, lightDef, shader, lightScissor, false);
+					} else if ( (sint->shader->HasCoverage(MC_TRANSLUCENT)) ) {
 						R_LinkLightSurf( &vLight->translucentInteractions, lightTris,
 							vEntity, lightDef, shader, lightScissor, false );
 					} else if ( !lightDef->parms.noShadows && sint->shader->TestMaterialFlag(MF_NOSELFSHADOW) ) {
@@ -1186,6 +1218,10 @@ void idInteraction::AddActiveInteraction( void ) {
 				}
 				if ( entityDef->parms.suppressShadowInLightID &&
 					entityDef->parms.suppressShadowInLightID == lightDef->parms.lightId ) {
+					continue;
+				}
+				// SM: Skip if flagged to not cast player shadows and this is the player
+				if ( entityDef->parms.isPlayer && !lightDef->parms.castPlayerShadow ) {
 					continue;
 				}
 			}

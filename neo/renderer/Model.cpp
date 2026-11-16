@@ -305,7 +305,11 @@ void idRenderModelStatic::InitFromFile( const char *fileName ) {
 	}
 
 	if ( !loaded ) {
-		common->Warning( "Couldn't load model: '%s'", name.c_str() );
+
+		
+		common->Error( "Couldn't load model: '%s'", name.c_str() );
+
+
 		MakeDefaultModel();
 		return;
 	}
