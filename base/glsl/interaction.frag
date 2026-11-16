@@ -51,14 +51,13 @@ layout(location = 0) out vec4 color;
 
 void main()
 {
+    vec3 lightVector = normalize(fragment.texcoord[0].xyz);
+
     vec4 bumpMap = texture(samp0, fragment.texcoord[1].xy);
     vec4 lightFalloff = idtex2Dproj(samp1, fragment.texcoord[2]);
     vec4 lightProj = idtex2Dproj(samp2, fragment.texcoord[3]);
     vec3 diffuseMap = texture(samp3, fragment.texcoord[4].xy).xyz;
     vec4 specMap = texture(samp4, fragment.texcoord[5].xy);
-
-    vec3 lightVector = normalize(fragment.texcoord[0].xyz);
-    //vec3 diffuseMap = ConvertYCoCgToRGB(YCoCG);
 
     vec3 localNormal;
     localNormal.xy = bumpMap.wy - 0.5;
@@ -73,6 +72,6 @@ void main()
     vec3 specularColor = specMap.xyz * specularContribution * uProgramEnv[PP_SPECULAR_COLOUR].xyz;
     vec3 lightColor = dot3(lightVector, localNormal) * lightProj.xyz * lightFalloff.xyz;
 
-    color.rgb = (diffuseColor + specularColor) * lightColor * fragment.color.xyz;
+    color.rgb = (diffuseColor + specularColor) * (lightColor * fragment.color.xyz);
     color.a = 1.0;
 }

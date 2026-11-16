@@ -35,7 +35,7 @@ layout(location = 0) in vec4 in_position;
 layout(location = 1) in vec4 in_texcoord;
 layout(location = 2) in vec4 in_normal;
 layout(location = 3) in vec4 in_tangent;
-layout(location = 4) in vec4 in_tangent_unk;
+layout(location = 4) in vec4 in_binormal; // ?
 layout(location = 5) in vec4 in_color;
 
 out VS_OUT
@@ -48,9 +48,9 @@ out VS_OUT
 #define PP_LOCAL_VIEW_ORIGIN 3
 
 void main() {
-    vec3 vNormal = in_normal.xyz * 2.0 - 1.0;
-    vec4 vTangent = in_tangent * 2.0 - 1.0;
-    vec3 vBinormal = cross(vNormal.xyz, vTangent.xyz) * vTangent.w;
+    vec3 vNormal = in_normal.xyz;
+    vec4 vTangent = in_tangent;
+    vec3 vBinormal = in_binormal.xyz; //cross(vNormal.xyz, vTangent.xyz) * vTangent.w;
 
     vec4 defaultTexCoord = vec4(0.0f, 0.5f, 0.0f, 1.0f);
 
