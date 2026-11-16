@@ -613,7 +613,7 @@ static void R_CheckPortableExtensions( void ) {
 	// check for minimum set
 	if ( !glConfig.multitextureAvailable || !glConfig.textureEnvCombineAvailable || !glConfig.cubeMapAvailable
 		|| !glConfig.envDot3Available ) {
-			common->Error( "%s", common->GetLanguageDict()->GetString( "#str_06780" ) );
+			common->Warning( "%s", common->GetLanguageDict()->GetString( "#str_06780" ) );
 	}
 
 	// GL_EXT_depth_bounds_test
@@ -719,7 +719,7 @@ static void R_CheckPortableExtensions( void ) {
 
 	if (!R_CheckExtension("GL_ARB_texture_float") || !glConfig.GLSLAvailable || !R_CheckExtension("GL_ARB_shading_language_420pack"))
 	{
-		idStr errorMessage = "Skin Deep requires a graphics card that supports DirectX 11_0 feature level or higher.\n";
+		idStr errorMessage = "This game requires a graphics card that supports DirectX 11_0 feature level or higher.\n";
 		errorMessage += idStr::Format("Your video card is: %s\n\n", glConfig.renderer_string);
 
 		if (!R_CheckExtension("GL_ARB_texture_float"))

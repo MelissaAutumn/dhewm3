@@ -1343,7 +1343,9 @@ void RB_StencilShadowPass( const drawSurf_t *drawSurfs ) {
 		qglEnable( GL_DEPTH_BOUNDS_TEST_EXT );
 	}
 
-	RB_RenderDrawSurfChainWithFunction( drawSurfs, RB_T_Shadow );
+	R_GLSL_EnableVertexAttribs(1);
+	RB_RenderDrawSurfChainWithFunction(drawSurfs, RB_T_Shadow);
+	R_GLSL_DisableVertexAttribs();
 
 	GL_Cull( CT_FRONT_SIDED );
 

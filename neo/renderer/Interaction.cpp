@@ -931,7 +931,7 @@ void idInteraction::CreateInteraction( const idRenderModel *model ) {
 				// this is the only place during gameplay (outside the utilities) that R_CreateShadowVolume() is called
 				sint->shadowTris = R_CreateShadowVolume( entityDef, tri, lightDef, shadowGen, sint->cullInfo );
 				if ( sint->shadowTris ) {
-					if ( shader->Coverage() != MC_OPAQUE || ( !r_skipSuppress.GetBool() && entityDef->parms.suppressSurfaceInViewID ) ) {
+					if ( (!shader->HasCoverage(MC_OPAQUE)) || ( !r_skipSuppress.GetBool() && entityDef->parms.suppressSurfaceInViewID ) ) {
 						// if any surface is a shadow-casting perforated or translucent surface, or the
 						// base surface is suppressed in the view (world weapon shadows) we can't use
 						// the external shadow optimizations because we can see through some of the faces
@@ -1276,6 +1276,78 @@ void idInteraction::AddActiveInteraction( void ) {
 			} else {
 				R_LinkLightSurf( &vLight->globalShadows,
 					shadowTris, vEntity, lightDef, NULL, shadowScissor, inside );
+			}
+		}
+	}
+
+	// blendo eric: add special font interactions that were generated on this entity during the ambient surface pass
+	if (!lightScissorsEmpty) {
+		for (int idxGui = 0; idxGui < tr.frameGuiSurfs.Num(); idxGui++) {
+			const drawSurf_t* tempSurf = tr.frameGuiSurfs[idxGui];
+			if (!tempSurf) {
+				continue;
+			}
+
+			const idMaterial* shader = tempSurf->material;
+			const srfTriangles_t* lightTris = tempSurf->geo;
+			const float* regs = tempSurf->shaderRegisters;
+			const viewEntity_s* vSpace = tempSurf->space;
+
+#if 0 // this is mostly already done by the gui creation code
+			//surfaceInteraction_t inter = (surfaceInteraction_t *)R_ClearedFrameAlloc(sizeof(surfaceInteraction_t));
+
+			// make sure the original surface has its ambient cache created
+			srfTriangles_t* tri = lightTris;
+			if (!tri->ambientCache) {
+				if (!R_CreateAmbientCache(tri, shader->ReceivesLighting())) {
+					// skip if we were out of vertex memory
+					continue;
+				}
+			}
+
+			// reference the original surface's ambient cache
+			lightTris->ambientCache = tri->ambientCache;
+
+			// touch the ambient surface so it won't get purged
+			vertexCache.Touch(lightTris->ambientCache);
+
+			// regenerate the lighting cache (for non-vertex program cards) if it has been purged
+			if (!lightTris->lightingCache) {
+				if (!R_CreateLightingCache(entityDef, lightDef, lightTris)) {
+					// skip if we are out of vertex memory
+					continue;
+				}
+			}
+			// touch the light surface so it won't get purged
+			// (vertex program cards won't have a light cache at all)
+			if (lightTris->lightingCache) {
+				vertexCache.Touch(lightTris->lightingCache);
+			}
+
+			if (!lightTris->indexCache && r_useIndexBuffers.GetBool()) {
+				vertexCache.Alloc(lightTris->indexes, lightTris->numIndexes * sizeof(lightTris->indexes[0]), &lightTris->indexCache, true);
+			}
+			if (lightTris->indexCache) {
+				vertexCache.Touch(lightTris->indexCache);
+			}
+
+#endif
+			R_GlobalShaderOverride(&shader);
+			if (shader->TestMaterialFlag(MF_BLENDLIT)) {
+				R_LinkLightSurf(&vLight->blendLitInteractions, lightTris,
+					vSpace, lightDef, shader, lightScissor, false, regs);
+			}
+			else if (shader->HasCoverage(MC_TRANSLUCENT)) {
+				R_LinkLightSurf(&vLight->translucentInteractions, lightTris,
+					vSpace, lightDef, shader, lightScissor, false, regs);
+			}
+			else if (!lightDef->parms.noShadows && shader->TestMaterialFlag(MF_NOSELFSHADOW)) {
+				R_LinkLightSurf(&vLight->localInteractions, lightTris,
+					vSpace, lightDef, shader, lightScissor, false, regs);
+			}
+			else {
+				R_LinkLightSurf(&vLight->globalInteractions, lightTris,
+					vSpace, lightDef, shader, lightScissor, false, regs);
 			}
 		}
 	}
