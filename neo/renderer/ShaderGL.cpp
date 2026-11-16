@@ -1,7 +1,7 @@
 // ----------------------------------------------------------------
 // From Game Programming in C++ by Sanjay Madhav
 // Copyright (C) 2017 Sanjay Madhav. All rights reserved.
-// 
+//
 // Released under the BSD License
 // See LICENSE in root directory for full details.
 // ----------------------------------------------------------------
@@ -13,11 +13,11 @@
 #include "tr_local.h"
 
 idShaderGL::idShaderGL()
-	: mShaderProgram(0)
-	, mVertexShader(0)
+	: mVertexShader(0)
 	, mFragShader(0)
+	, mShaderProgram(0)
 {
-	
+
 }
 
 idShaderGL::~idShaderGL()
@@ -43,21 +43,21 @@ bool idShaderGL::Load(const idStr& vertName, const idStr& fragName)
 	{
 		return false;
 	}
-	
+
 	// Now create a shader program that
 	// links together the vertex/frag shaders
 	mShaderProgram = qglCreateProgram();
 	qglAttachShader(mShaderProgram, mVertexShader);
 	qglAttachShader(mShaderProgram, mFragShader);
 	qglLinkProgram(mShaderProgram);
-	
+
 	// Verify that the program linked successfully
 	if (!IsValidProgram())
 	{
-		common->Error("%s/%s: failed to link\n", vertName.c_str(), fragName.c_str());
+		common->Warning("%s/%s: failed to link\n", vertName.c_str(), fragName.c_str());
 		return false;
 	}
-	
+
 	common->Printf("%s/%s\n", vertName.c_str(), fragName.c_str());
 
 #ifdef _DEBUG
@@ -186,25 +186,25 @@ bool idShaderGL::CompileShader(const idStr& fileName,
 	if (!contents.empty())
 	{
 		const char* contentsChar = contents.c_str();
-		
+
 		// Create a shader of the specified type
 		outShader = qglCreateShader(shaderType);
 		// Set the source characters and try to compile
 		qglShaderSource(outShader, 1, &(contentsChar), nullptr);
 		qglCompileShader(outShader);
-		
+
 		if (!IsCompiled(outShader))
 		{
-			common->Error("%s: failed to compile shader\n", fileName.c_str());
+			common->Warning("%s: failed to compile shader\n", fileName.c_str());
 			return false;
 		}
 	}
 	else
 	{
-		common->Error("%s: file not found\n", fileName.c_str());
+		common->Warning("%s: file not found\n", fileName.c_str());
 		return false;
 	}
-	
+
 	return true;
 }
 
@@ -213,7 +213,7 @@ bool idShaderGL::IsCompiled(GLuint shader)
 	GLint status;
 	// Query the compile status
 	qglGetShaderiv(shader, GL_COMPILE_STATUS, &status);
-	
+
 	if (status != GL_TRUE)
 	{
 		char buffer[512];
@@ -222,13 +222,13 @@ bool idShaderGL::IsCompiled(GLuint shader)
 		common->Warning("GLSL Compile Failed:\n%s", buffer);
 		return false;
 	}
-	
+
 	return true;
 }
 
 bool idShaderGL::IsValidProgram()
 {
-	
+
 	GLint status;
 	// Query the link status
 	qglGetProgramiv(mShaderProgram, GL_LINK_STATUS, &status);
@@ -240,7 +240,7 @@ bool idShaderGL::IsValidProgram()
 		common->Warning("GLSL Link Status:\n%s", buffer);
 		return false;
 	}
-	
+
 	return true;
 }
 
@@ -268,7 +268,7 @@ void idShaderGL::SetupUniforms()
 // 	{
 // 		qglUniformBlockBinding(mShaderProgram, matrices, 0);
 // 	}
-// 
+//
 // 	GLuint programUniforms = qglGetUniformBlockIndex(mShaderProgram, "ProgramUniforms");
 // 	if (programUniforms != GL_INVALID_INDEX)
 // 	{

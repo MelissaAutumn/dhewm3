@@ -102,7 +102,7 @@ void	RB_GLSL_DrawInteraction( const drawInteraction_t *din ) {
 	R_GLSL_SetProgramEnv(PP_DIFFUSE_MATRIX_T, din->diffuseMatrix[1]);
 	R_GLSL_SetProgramEnv(PP_SPECULAR_MATRIX_S, din->specularMatrix[0]);
 	R_GLSL_SetProgramEnv(PP_SPECULAR_MATRIX_T, din->specularMatrix[1]);
-	
+
 	// <blendo> eric: ambient lighting shader frag param, i.e normal independent
 	R_GLSL_SetProgramEnv(PP_AMBIENT_LEVEL, din->isAmbientLight);
 
@@ -269,7 +269,7 @@ void RB_GLSL_DrawInteractions( void ) {
 			&& !vLight->translucentInteractions ) {
 			continue;
 		}
-		
+
 		bool bAmbient = vLight->lightDef->parms.isAmbient;
 
 		// blendo eric todo: shouldn't need stencil at all for ambient lights?
@@ -403,20 +403,20 @@ void RB_GLSL_DrawInteractionsBlend() {
 
 idHashTable<idShaderGL*> shaderTable;
 idStr globalShaders[] = {
-	"test",
+	//"test",
 	"interaction",
 	"bumpyEnvironment",
-	"ambientLight",
+	//"ambientLight",
 	"shadow",
 	"environment",
-	"glasswarp",
-	"interactionLightBlend",
+	//"glasswarp",
+	//"interactionLightBlend",
 	"depthOnly",
 	"basicSurf",
 	"basicCube",
-	"basicObjectLinear",
-	"fogLight",
-	"customMaskPass"
+	//"basicObjectLinear",
+	//"fogLight",
+	//"customMaskPass"
 };
 
 /*
@@ -557,7 +557,7 @@ void R_GLSL_SetActiveProgram(const idStr& program)
 	}
 	else
 	{
-		common->Warning("R_GLSL_SetActiveProgram trying to activate program %s which does not exist!\n", program.c_str());
+		//common->Warning("R_GLSL_SetActiveProgram trying to activate program %s which does not exist!\n", program.c_str());
 		qglUseProgram(0);
 		currentShader = nullptr;
 	}

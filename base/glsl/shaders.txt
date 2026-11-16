@@ -1,0 +1,5 @@
+These shaders are based off the ins and outs of Skin Deep's glsl implementation, but have been ported over from Doom 3 BFG.
+
+Please see:
+https://github.com/id-Software/DOOM-3-BFG/blob/master/base/renderprogs
+https://github.com/id-Software/DOOM-3-BFG/blob/master/neo/renderer/RenderProgs_GLSL.cpp
