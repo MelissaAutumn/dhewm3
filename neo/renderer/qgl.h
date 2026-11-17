@@ -77,18 +77,24 @@ extern	void ( APIENTRY * qglMultiTexCoord2fvARB )( GLenum texture, GLfloat *st )
 extern	void ( APIENTRY * qglActiveTextureARB )( GLenum texture );
 extern	void ( APIENTRY * qglClientActiveTextureARB )( GLenum texture );
 
+// SM: Swap out ARB_vertex_buffer_object for GL_EXT_PROTOTYPES aka Core 2.0+ version
+// and only the functions we're actively using
 // ARB_vertex_buffer_object
-extern PFNGLBINDBUFFERARBPROC qglBindBufferARB;
-extern PFNGLDELETEBUFFERSARBPROC qglDeleteBuffersARB;
-extern PFNGLGENBUFFERSARBPROC qglGenBuffersARB;
-extern PFNGLISBUFFERARBPROC qglIsBufferARB;
-extern PFNGLBUFFERDATAARBPROC qglBufferDataARB;
-extern PFNGLBUFFERSUBDATAARBPROC qglBufferSubDataARB;
-extern PFNGLGETBUFFERSUBDATAARBPROC qglGetBufferSubDataARB;
-extern PFNGLMAPBUFFERARBPROC qglMapBufferARB;
-extern PFNGLUNMAPBUFFERARBPROC qglUnmapBufferARB;
-extern PFNGLGETBUFFERPARAMETERIVARBPROC qglGetBufferParameterivARB;
-extern PFNGLGETBUFFERPOINTERVARBPROC qglGetBufferPointervARB;
+// extern PFNGLBINDBUFFERARBPROC qglBindBufferARB;
+// extern PFNGLDELETEBUFFERSARBPROC qglDeleteBuffersARB;
+// extern PFNGLGENBUFFERSARBPROC qglGenBuffersARB;
+// extern PFNGLISBUFFERARBPROC qglIsBufferARB;
+// extern PFNGLBUFFERDATAARBPROC qglBufferDataARB;
+// extern PFNGLBUFFERSUBDATAARBPROC qglBufferSubDataARB;
+// extern PFNGLGETBUFFERSUBDATAARBPROC qglGetBufferSubDataARB;
+// extern PFNGLMAPBUFFERARBPROC qglMapBufferARB;
+// extern PFNGLUNMAPBUFFERARBPROC qglUnmapBufferARB;
+// extern PFNGLGETBUFFERPARAMETERIVARBPROC qglGetBufferParameterivARB;
+// extern PFNGLGETBUFFERPOINTERVARBPROC qglGetBufferPointervARB;
+extern PFNGLBINDBUFFERPROC	qglBindBuffer;
+extern PFNGLGENBUFFERSPROC	qglGenBuffers;
+extern PFNGLBUFFERDATAPROC	qglBufferData;
+extern PFNGLBUFFERSUBDATAPROC qglBufferSubData;
 
 // 3D textures
 extern void ( APIENTRY *qglTexImage3D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, const GLvoid *);
@@ -127,12 +133,58 @@ extern PFNGLBINDPROGRAMARBPROC				qglBindProgramARB;
 extern PFNGLGENPROGRAMSARBPROC				qglGenProgramsARB;
 extern PFNGLPROGRAMENVPARAMETER4FVARBPROC	qglProgramEnvParameter4fvARB;
 extern PFNGLPROGRAMLOCALPARAMETER4FVARBPROC	qglProgramLocalParameter4fvARB;
+extern PFNGLGETPROGRAMIVARBPROC				qglGetProgramivARB;
 
 // GL_EXT_depth_bounds_test
 extern PFNGLDEPTHBOUNDSEXTPROC              qglDepthBoundsEXT;
 
-// GL_ARB_debug_output
-extern PFNGLDEBUGMESSAGECALLBACKARBPROC    qglDebugMessageCallbackARB;
+// SM: Debug extensions to help with frame captures
+extern PFNGLOBJECTLABELPROC					qglObjectLabel;
+extern PFNGLPUSHDEBUGGROUPPROC				qglPushDebugGroup;
+extern PFNGLPOPDEBUGGROUPPROC				qglPopDebugGroup;
+
+
+// blendo eric: frame/render buffers
+extern PFNGLGENFRAMEBUFFERSPROC				qglGenFramebuffers;
+extern PFNGLDELETEFRAMEBUFFERSPROC			qglDeleteFramebuffers;
+extern PFNGLBINDFRAMEBUFFERPROC				qglBindFramebuffer;
+extern PFNGLFRAMEBUFFERTEXTURE2DPROC		qglFramebufferTexture2D;
+extern PFNGLCHECKFRAMEBUFFERSTATUSPROC		qglCheckFramebufferStatus;
+extern PFNGLBLITFRAMEBUFFERPROC				qglBlitFramebuffer;
+extern PFNGLDRAWBUFFERSPROC					qglDrawBuffers;
+extern PFNGLCLEARBUFFERUIVPROC				qglClearBufferuiv;
+extern PFNGLCLEARBUFFERFVPROC				qglClearBufferfv;
+
+// SM: GLSL functions
+extern PFNGLCREATEPROGRAMPROC				qglCreateProgram;
+extern PFNGLATTACHSHADERPROC				qglAttachShader;
+extern PFNGLLINKPROGRAMPROC					qglLinkProgram;
+extern PFNGLDELETEPROGRAMPROC				qglDeleteProgram;
+extern PFNGLDELETESHADERPROC				qglDeleteShader;
+extern PFNGLUSEPROGRAMPROC					qglUseProgram;
+extern PFNGLGETUNIFORMLOCATIONPROC			qglGetUniformLocation;
+extern PFNGLUNIFORMMATRIX4FVPROC			qglUniformMatrix4fv;
+extern PFNGLUNIFORM4FVPROC					qglUniform4fv;
+extern PFNGLUNIFORM3FVPROC					qglUniform3fv;
+extern PFNGLUNIFORM2FVPROC					qglUniform2fv;
+extern PFNGLUNIFORM1FPROC					qglUniform1f;
+extern PFNGLUNIFORM1IPROC					qglUniform1i;
+extern PFNGLUNIFORM1UIPROC					qglUniform1ui;
+extern PFNGLCREATESHADERPROC				qglCreateShader;
+extern PFNGLSHADERSOURCEPROC				qglShaderSource;
+extern PFNGLCOMPILESHADERPROC				qglCompileShader;
+extern PFNGLGETSHADERIVPROC					qglGetShaderiv;
+extern PFNGLGETSHADERINFOLOGPROC			qglGetShaderInfoLog;
+extern PFNGLGETPROGRAMIVPROC				qglGetProgramiv;
+extern PFNGLGETPROGRAMINFOLOGPROC			qglGetProgramInfoLog;
+extern PFNGLGETUNIFORMBLOCKINDEXPROC		qglGetUniformBlockIndex;
+extern PFNGLUNIFORMBLOCKBINDINGPROC			qglUniformBlockBinding;
+extern PFNGLBINDBUFFERRANGEPROC				qglBindBufferRange;
+extern PFNGLENABLEVERTEXATTRIBARRAYPROC		qglEnableVertexAttribArray;
+extern PFNGLDISABLEVERTEXATTRIBARRAYPROC	qglDisableVertexAttribArray;
+extern PFNGLVERTEXATTRIBPOINTERPROC			qglVertexAttribPointer;
+extern PFNGLACTIVETEXTUREPROC				qglActiveTexture;
+extern PFNGLBINDBUFFERBASEPROC				qglBindBufferBase;
 
 #if defined( _WIN32 ) && defined(ID_ALLOW_TOOLS)
 

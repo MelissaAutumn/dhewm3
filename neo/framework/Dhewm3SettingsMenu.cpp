@@ -1724,8 +1724,8 @@ static void SetVideoStuffFromCVars()
 	initialCustomVidRes[0] = r_customWidth.GetInteger();
 	initialCustomVidRes[1] = r_customHeight.GetInteger();
 
-	initialFullscreen = r_fullscreen.GetBool();
-	initialFullscreenDesktop = r_fullscreenDesktop.GetBool();
+	initialFullscreen = r_fullscreen.GetInteger();
+	//initialFullscreenDesktop = r_fullscreenDesktop.GetBool();
 
 	initialMSAAmode = r_multiSamples.GetInteger();
 
@@ -1753,8 +1753,8 @@ static bool VideoHasResettableChanges()
 	{
 		return true;
 	}
-	if ( r_fullscreen.GetBool() != initialFullscreen
-	     || r_fullscreenDesktop.GetBool() != initialFullscreenDesktop )
+	if ( r_fullscreen.GetInteger() != initialFullscreen )
+	     //|| r_fullscreenDesktop.GetBool() != initialFullscreenDesktop )
 	{
 		return true;
 	}
@@ -1782,8 +1782,7 @@ static bool VideoHasApplyableChanges()
 	if ( wantedWidth != curState.width || wantedHeight != curState.height ) {
 		return true;
 	}
-	if ( r_fullscreen.GetBool() != curState.fullScreen
-	    || (curState.fullScreen && r_fullscreenDesktop.GetBool() != curState.fullScreenDesktop) )
+	if ( r_fullscreen.GetInteger() != curState.fullScreen)
 	{
 		return true;
 	}
@@ -1826,7 +1825,7 @@ static void VideoResetChanges()
 	r_customHeight.SetInteger( initialCustomVidRes[1] );
 
 	r_fullscreen.SetBool( initialFullscreen );
-	r_fullscreenDesktop.SetBool( initialFullscreenDesktop );
+	//r_fullscreenDesktop.SetBool( initialFullscreenDesktop );
 
 	r_multiSamples.SetInteger( initialMSAAmode );
 	globalImages->image_usePrecompressedTextures.SetInteger( initialUsePrecomprTextures );
@@ -1884,18 +1883,22 @@ static void DrawVideoOptionsMenu()
 	ImGui::SeparatorText( "Options that must be applied" );
 
 	// fullscreen
-	int fullscreenChoice = r_fullscreen.GetBool();
-	if ( ImGui::Combo( "Window Mode", &fullscreenChoice, "Windowed\0Fullscreen\0" ) ) {
-		r_fullscreen.SetBool( fullscreenChoice != 0 );
+	//
+	//
+
+	int fullscreenMode = r_fullscreen.GetInteger();
+	if ( ImGui::Combo( "Window Mode", &fullscreenMode, "Windowed\0Fullscreen\0Borderless\0" ) ) {
+		r_fullscreen.SetInteger( fullscreenMode );
 	}
 	AddTooltip( "r_fullscreen" );
+	/*
 	bool fullscreenDesktop = r_fullscreenDesktop.GetBool();
 	if ( ImGui::Checkbox( "Fullscreen Desktop Mode: Use borderless window at desktop resolution for fullscreen", &fullscreenDesktop ) ) {
 		r_fullscreenDesktop.SetBool( fullscreenDesktop );
 	}
 	AddTooltip( "r_fullscreenDesktop" );
 	AddDescrTooltip( "ignores the resolution configured in dhewm3, doesn't switch the display resolution, can prevent issues like desktop icons being rearranged after running the game" );
-
+*/
 	// Video Mode / Resolution
 	static int selModeIdx = -1; // index within our vidModes array
 	static int selMode = -3; // global mode number (as used in r_mode)
@@ -1917,7 +1920,7 @@ static void DrawVideoOptionsMenu()
 		}
 	}
 
-	const char* resLabel = ( fullscreenChoice && fullscreenDesktop ) ? "Window Resolution (ignored for Fullscreen Desktop Mode!)###resMode" : "Resolution###resMode";
+	const char* resLabel = ( fullscreenMode ) ? "Window Resolution (ignored for Fullscreen Desktop Mode!)###resMode" : "Resolution###resMode";
 
 	if ( ImGui::Combo( resLabel, &selModeIdx, [](void* data, int idx) -> const char* {
 				const idList<VidMode>& vms = *static_cast< const idList<VidMode>* >(data);
@@ -2059,7 +2062,7 @@ static void DrawVideoOptionsMenu()
 		ImGui::Text( "OpenGL renderer: %s", glConfig.renderer_string );
 		ImGui::Text( "OpenGL version: %s", glConfig.version_string );
 
-		if ( glConfig.glDebugOutputAvailable && glConfig.haveDebugContext ) {
+		if ( glConfig.khrDebugAvailable && glConfig.haveDebugContext ) {
 			ImGui::Text( "    using an OpenGL debug context to show warnings from the OpenGL driver" );
 		}
 

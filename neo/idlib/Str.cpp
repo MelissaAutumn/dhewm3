@@ -33,6 +33,7 @@ If you have questions concerning this license or the applicable additional terms
 #include <limits.h>
 
 #include "idlib/Str.h"
+#include "idlib/containers/StrList.h"
 
 // DG: idDynamicBlockAlloc isn't thread-safe and idStr is used both in the main thread
 //     and the async thread! For some reason this seems to cause lots of problems on
@@ -571,6 +572,23 @@ bool idStr::StripTrailingOnce( const char *string ) {
 	return false;
 }
 
+
+/*
+============
+idStr::Replace
+============
+*/
+bool  idStr::ReplaceChar( const char old, const char nw ) {
+	bool replaced = false;
+	for ( int i = 0; i < Length(); i++ ) {
+		if ( data[i] == old ) {
+			data[i] = nw;
+			replaced = true;
+		}
+	}
+	return replaced;
+}
+
 /*
 ============
 idStr::Replace
@@ -698,6 +716,80 @@ idStr& idStr::StripQuotes ( void )
 	data[len] = '\0';
 
 	return *this;
+}
+
+idStrList idStr::Split( char delimiter, bool stripWhitespace /* = false */ )
+{
+	idStrList list;
+
+	if ( stripWhitespace )
+	{
+		StripTrailingWhitespace();
+		StripLeading( ' ' );
+	}
+
+	if ( Length() <= 0 )
+	{
+		return list;
+	}
+
+	int start = 0;
+	int delimLoc = Find( delimiter, start );
+	while ( delimLoc != -1 )
+	{
+		list.Append( Mid( start, delimLoc - start ) );
+		start = delimLoc + 1;
+		delimLoc = Find( delimiter, start );
+	}
+
+	list.Append( Mid( start, Length() - start ) );
+	return list;
+}
+
+bool idStr::Matches( const idStr& pattern ) const
+{
+	int selfIdx = 0;
+	int patternIndex = 0;
+	int prevSelf = -1;
+	int prevPattern = -1;
+
+	while ( selfIdx < Length() )
+	{
+		if ( pattern[patternIndex] == '*' )
+		{
+			patternIndex++;
+			prevPattern = patternIndex;
+			prevSelf = selfIdx;
+			if ( patternIndex == pattern.Length() )
+			{
+				return true;
+			}
+			continue;
+		}
+
+		// Mismatch
+		if ( ( *this )[selfIdx] != pattern[patternIndex] && pattern[patternIndex] != '?' )
+		{
+			if ( prevPattern == -1 )
+			{
+				return false;
+			}
+			prevSelf++;
+			selfIdx = prevSelf;
+			patternIndex = prevPattern;
+			continue;
+		}
+		selfIdx++;
+		patternIndex++;
+	}
+
+	// Is the pattern over?
+	while ( pattern[patternIndex] == '*' )
+	{
+		patternIndex++;
+	}
+
+	return patternIndex == pattern.Length();
 }
 
 /*

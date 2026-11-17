@@ -26,11 +26,16 @@ If you have questions concerning this license or the applicable additional terms
 ===========================================================================
 */
 
-#if defined(__ppc__) && defined(__APPLE__)
+// newer simd header replaces old sse headers
+
+#ifdef __ppc__
 #include <vecLib/vecLib.h>
 #endif
-#if defined(__GNUC__) && defined(__SSE2__)
-#include <xmmintrin.h>
+
+#if defined(__BLENDO_SIMD__)
+	#include <immintrin.h>
+#elif defined(__GNUC__) && defined(__SSE2__)
+	#include <xmmintrin.h>
 #endif
 
 #include "sys/platform.h"
@@ -467,7 +472,38 @@ void R_AxisToModelMatrix( const idMat3 &axis, const idVec3 &origin, float modelM
 // FIXME: these assume no skewing or scaling transforms
 
 void R_LocalPointToGlobal( const float modelMatrix[16], const idVec3 &in, idVec3 &out ) {
-#if defined(__GNUC__) && defined(__SSE2__)
+#if defined(__BLENDO_SIMD__)
+	// blendo eric note: simd change from gnuc was just using casts _mm_castsi128_ps / _mm_castps_si128
+	__m128 m0, m1, m2, m3;
+	__m128 in0, in1, in2;
+	float i0, i1, i2;
+	i0 = in[0];
+	i1 = in[1];
+	i2 = in[2];
+
+	m0 = _mm_loadu_ps(&modelMatrix[0]);
+	m1 = _mm_loadu_ps(&modelMatrix[4]);
+	m2 = _mm_loadu_ps(&modelMatrix[8]);
+	m3 = _mm_loadu_ps(&modelMatrix[12]);
+
+	in0 = _mm_load1_ps(&i0);
+	in1 = _mm_load1_ps(&i1);
+	in2 = _mm_load1_ps(&i2);
+
+	m0 = _mm_mul_ps(m0, in0);
+	m1 = _mm_mul_ps(m1, in1);
+	m2 = _mm_mul_ps(m2, in2);
+
+	m0 = _mm_add_ps(m0, m1);
+	m0 = _mm_add_ps(m0, m2);
+	m0 = _mm_add_ps(m0, m3);
+
+	_mm_store_ss(&out[0], m0);
+	m1 = _mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(m0), 0x55));
+	_mm_store_ss(&out[1], m1);
+	m2 = _mm_movehl_ps(m2, m0);
+	_mm_store_ss(&out[2], m2);
+#elif defined(__GNUC__) && defined(__SSE2__)
 	__m128 m0, m1, m2, m3;
 	__m128 in0, in1, in2;
 	float i0,i1,i2;
@@ -575,108 +611,112 @@ void R_TransformEyeZToWin( float src_z, const float *projectionMatrix, float &ds
 	}
 }
 
-/*
-=================
-R_RadiusCullLocalBox
+#if !defined(__BLENDO_INLINE_CULL__)
+ /*
+ =================
+ R_RadiusCullLocalBox
 
-A fast, conservative center-to-corner culling test
-Returns true if the box is outside the given global frustum, (positive sides are out)
-=================
-*/
-bool R_RadiusCullLocalBox( const idBounds &bounds, const float modelMatrix[16], int numPlanes, const idPlane *planes ) {
-	int			i;
-	float		d;
-	idVec3		worldOrigin;
-	float		worldRadius;
-	const idPlane	*frust;
+ A fast, conservative center-to-corner culling test
+ Returns true if the box is outside the given global frustum, (positive sides are out)
+ =================
+ */
+ bool R_RadiusCullLocalBox( const idBounds &bounds, const float modelMatrix[16], int numPlanes, const idPlane *planes ) {
+ 	int			i;
+ 	float		d;
+ 	idVec3		worldOrigin;
+ 	float		worldRadius;
+ 	const idPlane	*frust;
 
-	if ( r_useCulling.GetInteger() == 0 ) {
-		return false;
-	}
+ 	// transform the surface bounds into world space
+ 	idVec3	localOrigin = ( bounds[0] + bounds[1] ) * 0.5;
 
-	// transform the surface bounds into world space
-	idVec3	localOrigin = ( bounds[0] + bounds[1] ) * 0.5;
+ 	R_LocalPointToGlobal( modelMatrix, localOrigin, worldOrigin );
 
-	R_LocalPointToGlobal( modelMatrix, localOrigin, worldOrigin );
+ 	worldRadius = (bounds[0] - localOrigin).Length();	// FIXME: won't be correct for scaled objects
 
-	worldRadius = (bounds[0] - localOrigin).Length();	// FIXME: won't be correct for scaled objects
+ 	for ( i = 0 ; i < numPlanes ; i++ ) {
+ 		frust = planes + i;
+ 		d = frust->Distance( worldOrigin );
+ 		if ( d > worldRadius ) {
+ 			return true;	// culled
+ 		}
+ 	}
 
-	for ( i = 0 ; i < numPlanes ; i++ ) {
-		frust = planes + i;
-		d = frust->Distance( worldOrigin );
-		if ( d > worldRadius ) {
-			return true;	// culled
-		}
-	}
+ 	return false;		// no culled
+ }
 
-	return false;		// no culled
-}
+ /*
+ =================
+ R_CornerCullLocalBox
 
-/*
-=================
-R_CornerCullLocalBox
+ Tests all corners against the frustum.
+ Can still generate a few false positives when the box is outside a corner.
+ Returns true if the box is outside the given global frustum, (positive sides are out)
+ =================
+ */
+ bool R_CornerCullLocalBox( const idBounds &bounds, const float modelMatrix[16], int numPlanes, const idPlane *planes ) {
+ 	int			i, j;
+ 	idVec3		transformed[8];
+ 	float		dists[8];
+ 	idVec3		v;
+ 	const idPlane *frust;
 
-Tests all corners against the frustum.
-Can still generate a few false positives when the box is outside a corner.
-Returns true if the box is outside the given global frustum, (positive sides are out)
-=================
-*/
-bool R_CornerCullLocalBox( const idBounds &bounds, const float modelMatrix[16], int numPlanes, const idPlane *planes ) {
-	int			i, j;
-	idVec3		transformed[8];
-	float		dists[8];
-	idVec3		v;
-	const idPlane *frust;
+ 	// transform into world space
+ 	for ( i = 0 ; i < 8 ; i++ ) {
+ 		v[0] = bounds[i&1][0];
+ 		v[1] = bounds[(i>>1)&1][1];
+ 		v[2] = bounds[(i>>2)&1][2];
 
-	// we can disable box culling for experimental timing purposes
-	if ( r_useCulling.GetInteger() < 2 ) {
-		return false;
-	}
+ 		R_LocalPointToGlobal( modelMatrix, v, transformed[i] );
+ 	}
 
-	// transform into world space
-	for ( i = 0 ; i < 8 ; i++ ) {
-		v[0] = bounds[i&1][0];
-		v[1] = bounds[(i>>1)&1][1];
-		v[2] = bounds[(i>>2)&1][2];
+ 	// check against frustum planes
+ 	for ( i = 0 ; i < numPlanes ; i++ ) {
+ 		frust = planes + i;
+ 		for ( j = 0 ; j < 8 ; j++ ) {
+ 			dists[j] = frust->Distance( transformed[j] );
+ 			if ( dists[j] < 0 ) {
+ 				break;
+ 			}
+ 		}
+ 		if ( j == 8 ) {
+ 			// all points were behind one of the planes
+ 			tr.pc.c_box_cull_out++;
+ 			return true;
+ 		}
+ 	}
 
-		R_LocalPointToGlobal( modelMatrix, v, transformed[i] );
-	}
+ 	tr.pc.c_box_cull_in++;
 
-	// check against frustum planes
-	for ( i = 0 ; i < numPlanes ; i++ ) {
-		frust = planes + i;
-		for ( j = 0 ; j < 8 ; j++ ) {
-			dists[j] = frust->Distance( transformed[j] );
-			if ( dists[j] < 0 ) {
-				break;
-			}
-		}
-		if ( j == 8 ) {
-			// all points were behind one of the planes
-			tr.pc.c_box_cull_out++;
-			return true;
-		}
-	}
+ 	return false;		// not culled
+ }
 
-	tr.pc.c_box_cull_in++;
+ /*
+ =================
+ R_CullLocalBox
 
-	return false;		// not culled
-}
+ Performs quick test before expensive test
+ Returns true if the box is outside the given global frustum, (positive sides are out)
+ =================
+ */
+ bool R_CullLocalBox(const idBounds& bounds, const float modelMatrix[16], int numPlanes, const idPlane* planes, bool noFrustumCull ) {
+ 	if (noFrustumCull)
+ 	{
+ 		return false;
+ 	}
+ 	if ( R_RadiusCullLocalBox( bounds, modelMatrix, numPlanes, planes ) ) {
+ 		return true;
+ 	}
 
-/*
-=================
-R_CullLocalBox
+ 	// we can disable box culling for experimental timing purposes
+ 	if (r_useCulling.GetInteger() < 2) {
+ 		return false;
+ 	}
 
-Performs quick test before expensive test
-Returns true if the box is outside the given global frustum, (positive sides are out)
-=================
-*/
-bool R_CullLocalBox( const idBounds &bounds, const float modelMatrix[16], int numPlanes, const idPlane *planes ) {
-	if ( R_RadiusCullLocalBox( bounds, modelMatrix, numPlanes, planes ) ) {
-		return true;
-	}
-	return R_CornerCullLocalBox( bounds, modelMatrix, numPlanes, planes );
-}
+ 	return R_CornerCullLocalBox( bounds, modelMatrix, numPlanes, planes );
+ }
+#endif
+
 
 /*
 ==========================
@@ -1073,6 +1113,42 @@ static void R_SortDrawSurfs( void ) {
 		R_QsortSurfaces );
 }
 
+/*
+=================
+R_AddGlobalViewEntities
+
+	SW: Sometimes we want to override all the rules of visibility and draw an object in the world -- regardless of whether the normal rules of culling would cause it to be discarded.
+	A common use-case for this is in-world UI elements like the LKP (Last Known Position) marker, which we want to keep rendering even when the player isn't in the same room.
+
+	Normally, entities are considered for drawing by flooding through the visible portals and finding what's visible in the rendered areas.
+	This method explicitly inserts entities to be drawn, independent of the flooding process -- and ensures they aren't culled via other means (i.e. scissors)
+
+	NOTES:
+	- This does NOT force entities to be drawn on top of everything else. For that, make sure that renderentity.weaponDepthHack is true
+	- This currently only works on ambient draw calls (unlit surfaces, glowing stuff, etc). Lighting interactions are a different kettle of fish, and we don't need them right now
+=================
+*/
+static void R_AddGlobalViewEntities(idRenderWorldLocal* renderWorld)
+{
+	idList<qhandle_t> globalRenderEnts = renderWorld->globalRenderEnts;
+	for (int i = 0; i < globalRenderEnts.Num(); i++)
+	{
+		// blendo eric TODO why is this null? recently started?
+		int entIdx = globalRenderEnts[i];
+		if (entIdx < renderWorld->entityDefs.Num() && renderWorld->entityDefs[entIdx])
+		{
+			viewEntity_t* viewEnt = R_SetEntityDefViewEntity(renderWorld->entityDefs[entIdx]);
+
+			// Since we can't count on glimpsing this entity through the portal stack,
+			// we immediately set its scissor rect to be the size of the screen frustum.
+			idRenderEntityLocal* def = viewEnt->entityDef;
+			idBounds bounds;
+			tr.viewDef->viewFrustum.ProjectionBounds(idBox(def->referenceBounds, def->parms.origin, def->parms.axis), bounds);
+
+			viewEnt->scissorRect.Union(R_ScreenRectFromViewFrustumBounds(bounds));
+		}
+	}
+}
 
 
 //========================================================================
@@ -1123,6 +1199,9 @@ void R_RenderView( viewDef_t *parms ) {
 	// lightDefs that are in them and pass culling.
 	static_cast<idRenderWorldLocal *>(parms->renderWorld)->FindViewLightsAndEntities();
 
+	// Add entities that need to be drawn globally (e.g. LKP marker)
+	R_AddGlobalViewEntities(parms->renderWorld);
+
 	// constrain the view frustum to the view lights and entities
 	R_ConstrainViewFrustum();
 
@@ -1142,7 +1221,8 @@ void R_RenderView( viewDef_t *parms ) {
 	R_SortDrawSurfs();
 
 	// generate any subviews (mirrors, cameras, etc) before adding this view
-	if ( R_GenerateSubViews() ) {
+	// SM: Only allow generating sub views when not already in a sub view
+	if ( !oldView && R_GenerateSubViews() ) {
 		// if we are debugging subviews, allow the skipping of the
 		// main view draw
 		if ( r_subviewOnly.GetBool() ) {

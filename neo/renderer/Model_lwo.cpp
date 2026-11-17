@@ -923,7 +923,7 @@ Append a node to a list.
 
 void lwListAdd( void **list, void *node )
 {
-   lwNode *head, *tail;
+   lwNode *head, *tail = nullptr;
 
    head = *(( lwNode ** ) list );
    if ( !head ) {

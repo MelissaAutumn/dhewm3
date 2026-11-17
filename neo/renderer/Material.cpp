@@ -86,7 +86,7 @@ void idMaterial::CommonInit() {
 	surfaceFlags = SURFTYPE_NONE;
 	materialFlags = 0;
 	sort = SS_BAD;
-	coverage = MC_BAD;
+	SetCoverage(MC_BAD);
 	cullType = CT_FRONT_SIDED;
 	deform = DFRM_NONE;
 	numOps = 0;
@@ -116,6 +116,10 @@ void idMaterial::CommonInit() {
 	suppressInSubview = false;
 	refCount = 0;
 	portalSky = false;
+	sampleFromCentre = false;
+
+	deformDecl = nullptr;
+	pd = nullptr;
 
 	decalInfo.stayTime = 10000;
 	decalInfo.fadeTime = 4000;
@@ -127,6 +131,10 @@ void idMaterial::CommonInit() {
 	decalInfo.end[1] = 0;
 	decalInfo.end[2] = 0;
 	decalInfo.end[3] = 0;
+
+	// blendo eric: missing defaults
+	surfaceArea = 0.0f;
+	memset( texGenRegisters, 0, sizeof( texGenRegisters ) );
 }
 
 /*
@@ -166,6 +174,7 @@ void idMaterial::FreeData() {
 				stages[i].texture.cinematic = NULL;
 			}
 			if ( stages[i].newStage != NULL ) {
+				delete stages[i].newStage->glslName;
 				Mem_Free( stages[i].newStage );
 				stages[i].newStage = NULL;
 			}
@@ -265,6 +274,7 @@ static const infoParm_t	infoParms[] = {
 	{"nodamage",	0,	SURF_NODAMAGE,	0 },		// no falling damage when hitting
 	{"ladder",		0,	SURF_LADDER,	0 },		// climbable
 	{"nosteps",		0,	SURF_NOSTEPS,	0 },		// no footsteps
+	{"lightProbe",	0,  SURF_LIGHTPROBE,0 },		// SW: Light probe material (does not render, but does interact with lighting)
 
 	// material types for particle, sound, footstep feedback
 	{"metal",		0,  SURFTYPE_METAL,		0 },	// metal
@@ -277,13 +287,28 @@ static const infoParm_t	infoParms[] = {
 	{"plastic",		0,	SURFTYPE_PLASTIC,	0 },	// plastic
 	{"ricochet",	0,	SURFTYPE_RICOCHET,	0 },	// behaves like metal but causes a ricochet sound
 
-	// unassigned surface types
-	{"surftype10",	0,	SURFTYPE_10,	0 },
-	{"surftype11",	0,	SURFTYPE_11,	0 },
+	
+	{"fabric",		0,	SURFTYPE_FABRIC,	0 }, //BC
+	
+	{"tile",		0,	SURFTYPE_TILE,	0 }, //BC
 	{"surftype12",	0,	SURFTYPE_12,	0 },
 	{"surftype13",	0,	SURFTYPE_13,	0 },
 	{"surftype14",	0,	SURFTYPE_14,	0 },
 	{"surftype15",	0,	SURFTYPE_15,	0 },
+
+
+	{ "climbclip",	0,	0,	CONTENTS_CLIMBCLIP }, //bc	
+
+	{ "nowalk",		0,	0,	CONTENTS_NOWALK }, // SW: AAS 'no walk' volume. The AI can path out of it, but not into it.
+	{ "nobeaconclip", 0, 0, CONTENTS_NOBEACONCLIP }, // SM: Marks something that doesn't clip beacons
+	{ "noclimbclip", 0, 0, CONTENTS_NOCLIMBCLIP }, // SM
+
+
+	//BC
+	{"corpse",		0,	0,	CONTENTS_CORPSE },
+
+	{ "playerlook_trigger",	0,	0,	CONTENTS_PLAYERLOOK_TRIGGER },
+	{ "contents_translucent",	0,	0,	CONTENTS_TRANSLUCENT },
 };
 
 static const int numInfoParms = sizeof(infoParms) / sizeof (infoParms[0]);
@@ -606,6 +631,11 @@ int idMaterial::ParseTerm( idLexer &src ) {
 		pd->registersAreConstant = false;
 		return EXP_REG_GLOBAL7;
 	}
+	// SM: Added to have a time that is not paused in materials
+	if ( !token.Icmp( "realtime" ) ) {
+		pd->registersAreConstant = false;
+		return EXP_REG_REALTIME;
+	}
 	if ( !token.Icmp( "fragmentPrograms" ) ) {
 		return GetExpressionConstant( (float) glConfig.ARBFragmentProgramAvailable );
 	}
@@ -613,6 +643,35 @@ int idMaterial::ParseTerm( idLexer &src ) {
 	if ( !token.Icmp( "sound" ) ) {
 		pd->registersAreConstant = false;
 		return EmitOp( 0, 0, OP_TYPE_SOUND );
+	}
+
+	// SM: Added for view distance interpolation
+	if ( !token.Icmp( "viewDist" ) ) {
+		a = 0;
+		b = 0;
+		src.ReadToken( &token );
+		if ( token.type == TT_PUNCTUATION && token == "(" ) {
+			src.ReadToken( &token );
+			if ( token.type == TT_NUMBER ) {
+				a = token.GetIntValue();
+				src.ReadToken( &token );
+				if ( token.type == TT_PUNCTUATION && token == "," ) {
+					src.ReadToken( &token );
+					if ( token.type == TT_NUMBER ) {
+						b = token.GetIntValue();
+						src.ReadToken( &token );
+						if ( token.type == TT_PUNCTUATION && token == ")" ) {
+							return EmitOp( a, b, OP_TYPE_VIEWDIST );
+						}
+					}
+				}
+			}
+		}
+		
+		// We get here only if it was bad
+		src.Warning( "Invalid viewDist: syntax is viewDist(min, max)" );
+		SetMaterialFlag( MF_DEFAULTED );
+		return 0;
 	}
 
 	// parse negative numbers
@@ -830,8 +889,20 @@ void idMaterial::ParseBlend( idLexer &src, shaderStage_t *stage ) {
 		stage->drawStateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 		return;
 	}
+	if ( !token.Icmp( "blendnotest" ) ) {
+		stage->drawStateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+		stage->ignoreAlphaTest = true;
+		stage->lighting = SL_AMBIENT;
+		return;
+	}
 	if ( !token.Icmp( "add" ) ) {
 		stage->drawStateBits = GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE;
+		return;
+	}
+	if ( !token.Icmp( "addnotest" ) ) {
+		stage->drawStateBits = GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE;
+		stage->ignoreAlphaTest = true;
+		stage->lighting = SL_AMBIENT;
 		return;
 	}
 	if ( !token.Icmp( "filter" ) || !token.Icmp( "modulate" ) ) {
@@ -1148,6 +1219,12 @@ void idMaterial::ParseStage( idLexer &src, const textureRepeat_t trpDefault ) {
 			continue;
 		}
 
+		if (!token.Icmp( "mapNonPowerOf2" )) {
+			str = R_ParsePastImageProgram(src, false);
+			idStr::Copynz(imageName, str, sizeof(imageName));
+			continue;
+		}
+
 		if (  !token.Icmp( "remoteRenderMap" ) ) {
 			ts->dynamic = DI_REMOTE_RENDER;
 			ts->width = src.ParseInt();
@@ -1441,7 +1518,7 @@ void idMaterial::ParseStage( idLexer &src, const textureRepeat_t trpDefault ) {
 		if ( !token.Icmp( "alphaTest" ) ) {
 			ss->hasAlphaTest = true;
 			ss->alphaTestRegister = ParseExpression( src );
-			coverage = MC_PERFORATED;
+			SetCoverage(MC_PERFORATED);
 			continue;
 		}
 
@@ -1498,36 +1575,45 @@ void idMaterial::ParseStage( idLexer &src, const textureRepeat_t trpDefault ) {
 		}
 		if ( !token.Icmp( "program" ) ) {
 			if ( src.ReadTokenOnLine( &token ) ) {
-				newStage.vertexProgram = R_FindARBProgram( GL_VERTEX_PROGRAM_ARB, token.c_str() );
-				newStage.fragmentProgram = R_FindARBProgram( GL_FRAGMENT_PROGRAM_ARB, token.c_str() );
-			}
-			continue;
-		}
-		if ( !token.Icmp( "fragmentProgram" ) ) {
-			if ( src.ReadTokenOnLine( &token ) ) {
-				newStage.fragmentProgram = R_FindARBProgram( GL_FRAGMENT_PROGRAM_ARB, token.c_str() );
-			}
-			continue;
-		}
-		if ( !token.Icmp( "vertexProgram" ) ) {
-			if ( src.ReadTokenOnLine( &token ) ) {
-				newStage.vertexProgram = R_FindARBProgram( GL_VERTEX_PROGRAM_ARB, token.c_str() );
-			}
-			continue;
-		}
-		if ( !token.Icmp( "megaTexture" ) ) {
-			if ( src.ReadTokenOnLine( &token ) ) {
-				newStage.megaTexture = new idMegaTexture;
-				if ( !newStage.megaTexture->InitFromMegaFile( token.c_str() ) ) {
-					delete newStage.megaTexture;
-					SetMaterialFlag( MF_DEFAULTED );
-					continue;
+				idList<idStr> splits = token.Split('.');
+				if (R_FindGLSLProgram(splits[0]))
+				{
+					newStage.glslName = new idStr(splits[0]);
 				}
-				newStage.vertexProgram = R_FindARBProgram( GL_VERTEX_PROGRAM_ARB, "megaTexture.vfp" );
-				newStage.fragmentProgram = R_FindARBProgram( GL_FRAGMENT_PROGRAM_ARB, "megaTexture.vfp" );
-				continue;
 			}
+			continue;
 		}
+		// SM: Deprecate separate vertex/fragment program directives (since every case used the same for both)
+		// This simplifies things for GLSL
+ 		if ( !token.Icmp( "fragmentProgram" ) ) {
+ 			if ( src.ReadTokenOnLine( &token ) ) {
+				common->Warning("%s: separate vertex/fragmentProgram specifier no longer supported, use 'program' instead", src.GetFileName());
+// 				newStage.fragmentProgram = R_FindARBProgram( GL_FRAGMENT_PROGRAM_ARB, token.c_str() );
+ 			}
+ 			continue;
+ 		}
+ 		if ( !token.Icmp( "vertexProgram" ) ) {
+ 			if ( src.ReadTokenOnLine( &token ) ) {
+				common->Warning("%s: separate vertex/fragmentProgram specifier no longer supported, use 'program' instead", src.GetFileName());
+// 				newStage.vertexProgram = R_FindARBProgram( GL_VERTEX_PROGRAM_ARB, token.c_str() );
+ 			}
+ 			continue;
+ 		}
+		// SM: Disable megaTexture specifier because we don't use this not have the shaders
+ 		if ( !token.Icmp( "megaTexture" ) ) {
+ 			if ( src.ReadTokenOnLine( &token ) ) {
+				common->Warning("%s: 'megaTexture' specifier is not supported", src.GetFileName());
+// 				newStage.megaTexture = new idMegaTexture;
+// 				if ( !newStage.megaTexture->InitFromMegaFile( token.c_str() ) ) {
+// 					delete newStage.megaTexture;
+// 					SetMaterialFlag( MF_DEFAULTED );
+// 					continue;
+// 				}
+// 				newStage.vertexProgram = R_FindARBProgram( GL_VERTEX_PROGRAM_ARB, "megaTexture.vfp" );
+// 				newStage.fragmentProgram = R_FindARBProgram( GL_FRAGMENT_PROGRAM_ARB, "megaTexture.vfp" );
+ 				continue;
+ 			}
+ 		}
 
 
 		if ( !token.Icmp( "vertexParm" ) ) {
@@ -1546,9 +1632,15 @@ void idMaterial::ParseStage( idLexer &src, const textureRepeat_t trpDefault ) {
 		return;
 	}
 
+	// SM: Decals always need to mask alpha or blending with other translucent objects
+	// will be broken. Fixes issue with glass piece blending
+	if (sort == SS_DECAL)
+	{
+		ss->drawStateBits |= GLS_ALPHAMASK;
+	}
 
 	// if we are using newStage, allocate a copy of it
-	if ( newStage.fragmentProgram || newStage.vertexProgram ) {
+	if ( newStage.fragmentProgram || newStage.vertexProgram || newStage.glslName ) {
 		ss->newStage = (newShaderStage_t *)Mem_Alloc( sizeof( newStage ) );
 		*(ss->newStage) = newStage;
 	}
@@ -1871,6 +1963,11 @@ void idMaterial::ParseMaterial( idLexer &src ) {
 			SetMaterialFlag( MF_NOPORTALFOG );
 			continue;
 		}
+		// SM: noDesaturate
+		else if ( !token.Icmp( "noDesaturate" ) ) {
+			SetMaterialFlag( MF_NODESATURATE );
+			continue;
+		}
 		// forceShadows allows nodraw surfaces to cast shadows
 		else if ( !token.Icmp( "forceShadows" ) ) {
 			SetMaterialFlag( MF_FORCESHADOWS );
@@ -1888,7 +1985,7 @@ void idMaterial::ParseMaterial( idLexer &src ) {
 		}
 		// translucent
 		else if ( !token.Icmp( "translucent" ) ) {
-			coverage = MC_TRANSLUCENT;
+			SetCoverage(MC_TRANSLUCENT);
 			continue;
 		}
 		// global zero clamp
@@ -1908,7 +2005,7 @@ void idMaterial::ParseMaterial( idLexer &src ) {
 		}
 		// forceOpaque is used for skies-behind-windows
 		else if ( !token.Icmp( "forceOpaque" ) ) {
-			coverage = MC_OPAQUE;
+			SetCoverage(MC_OPAQUE);
 			continue;
 		}
 		// twoSided
@@ -1945,7 +2042,7 @@ void idMaterial::ParseMaterial( idLexer &src ) {
 		// mirror
 		else if ( !token.Icmp( "mirror" ) ) {
 			sort = SS_SUBVIEW;
-			coverage = MC_OPAQUE;
+			SetCoverage(MC_OPAQUE);
 			continue;
 		}
 		// noFog
@@ -1967,6 +2064,10 @@ void idMaterial::ParseMaterial( idLexer &src ) {
 
 			copy = str;	// so other things don't step on it
 			lightFalloffImage = globalImages->ImageFromFile( copy, TF_DEFAULT, false, TR_CLAMP /* TR_CLAMP_TO_ZERO */, TD_DEFAULT );
+			continue;
+		}
+		else if (!token.Icmp("sampleFromCentre")) {
+			sampleFromCentre = true;
 			continue;
 		}
 		// guisurf <guifile> | guisurf entity
@@ -2058,6 +2159,36 @@ void idMaterial::ParseMaterial( idLexer &src ) {
 			SetMaterialFlag( MF_NOSHADOWS );
 			continue;
 		}
+		// blendo eric: blend lit settings for materials, intended for interaction lit decals
+		// blend lit is sorted onto a different interaction array, used in a different render pass
+		// used in draw_common::RB_STD_DrawView
+		else if (!token.Icmp("BLEND_LIT")) {
+			// polygonOffset
+			SetMaterialFlag(MF_POLYGONOFFSET);
+			polygonOffset = 1;
+
+			// discrete / no collision
+			surfaceFlags |= SURF_DISCRETE;
+			surfaceFlags |= SURF_NOIMPACT;
+			surfaceFlags &= ~SURF_COLLISION;
+
+			// nonsolid (for eye/AI)
+			contentFlags &= ~CONTENTS_SOLID;
+			contentFlags &= ~CONTENTS_OPAQUE;
+
+			editorAlpha = 0.5;
+
+			sort = SS_BLENDLIT;
+
+			// noShadows
+			SetMaterialFlag( MF_BLENDLIT );
+			continue;
+		}
+		// blendo eric: flag for special font materials which replace the code generated ones
+		else if (!token.Icmp("FONT")) {
+			SetMaterialFlag(MF_FONT);
+			continue;
+		}
 		else if ( token == "{" ) {
 			// create the new stage
 			ParseStage( src, trpDefault );
@@ -2086,9 +2217,10 @@ void idMaterial::ParseMaterial( idLexer &src ) {
 	if ( cullType == CT_TWO_SIDED ) {
 		for ( i = 0 ; i < numStages ; i++ ) {
 			if ( pd->parseStages[i].lighting != SL_AMBIENT || pd->parseStages[i].texture.texgen != TG_EXPLICIT ) {
-				cullType = CT_FRONT_SIDED;
-				shouldCreateBackSides = true;
-
+				if ( cullType == CT_TWO_SIDED ) {
+					cullType = CT_FRONT_SIDED;
+					shouldCreateBackSides = true;
+				}
 				break;
 			}
 		}
@@ -2171,15 +2303,15 @@ bool idMaterial::Parse( const char *text, const int textLength ) {
 	}
 
 	// automatically determine coverage if not explicitly set
-	if ( coverage == MC_BAD ) {
+	if (HasCoverage(MC_BAD)) {
 		// automatically set MC_TRANSLUCENT if we don't have any interaction stages and
 		// the first stage is blended and not an alpha test mask or a subview
 		if ( !numStages ) {
 			// non-visible
-			coverage = MC_TRANSLUCENT;
+			SetCoverage(MC_TRANSLUCENT);
 		} else if ( numStages != numAmbientStages ) {
 			// we have an interaction draw
-			coverage = MC_OPAQUE;
+			SetCoverage(MC_OPAQUE);
 		} else if (
 			( pd->parseStages[0].drawStateBits & GLS_DSTBLEND_BITS ) != GLS_DSTBLEND_ZERO ||
 			( pd->parseStages[0].drawStateBits & GLS_SRCBLEND_BITS ) == GLS_SRCBLEND_DST_COLOR ||
@@ -2188,14 +2320,14 @@ bool idMaterial::Parse( const char *text, const int textLength ) {
 			( pd->parseStages[0].drawStateBits & GLS_SRCBLEND_BITS ) == GLS_SRCBLEND_ONE_MINUS_DST_ALPHA
 			) {
 			// blended with the destination
-				coverage = MC_TRANSLUCENT;
+			SetCoverage(MC_TRANSLUCENT);
 		} else {
-			coverage = MC_OPAQUE;
+			SetCoverage(MC_OPAQUE);
 		}
 	}
 
 	// translucent automatically implies noshadows
-	if ( coverage == MC_TRANSLUCENT ) {
+	if ( HasCoverage(MC_TRANSLUCENT) ) {
 		SetMaterialFlag( MF_NOSHADOWS );
 	} else {
 		// mark the contents as opaque
@@ -2203,7 +2335,7 @@ bool idMaterial::Parse( const char *text, const int textLength ) {
 	}
 
 	// if we are translucent, draw with an alpha in the editor
-	if ( coverage == MC_TRANSLUCENT ) {
+	if ( HasCoverage(MC_TRANSLUCENT) || TestMaterialFlag(MF_BLENDLIT) ) {
 		editorAlpha = 0.5;
 	} else {
 		editorAlpha = 1.0;
@@ -2213,7 +2345,7 @@ bool idMaterial::Parse( const char *text, const int textLength ) {
 	if ( sort == SS_BAD ) {
 		if ( TestMaterialFlag(MF_POLYGONOFFSET) ) {
 			sort = SS_DECAL;
-		} else if ( coverage == MC_TRANSLUCENT ) {
+		} else if ( HasCoverage(MC_TRANSLUCENT) ) {
 			sort = SS_MEDIUM;
 		} else {
 			sort = SS_OPAQUE;
@@ -2228,7 +2360,7 @@ bool idMaterial::Parse( const char *text, const int textLength ) {
 		if ( pStage->texture.image == globalImages->currentRenderImage ) {
 			if ( sort != SS_PORTAL_SKY ) {
 				sort = SS_POST_PROCESS;
-				coverage = MC_TRANSLUCENT;
+				SetCoverage(MC_TRANSLUCENT);
 			}
 			break;
 		}
@@ -2237,7 +2369,7 @@ bool idMaterial::Parse( const char *text, const int textLength ) {
 				if ( pStage->newStage->fragmentProgramImages[j] == globalImages->currentRenderImage ) {
 					if ( sort != SS_PORTAL_SKY ) {
 						sort = SS_POST_PROCESS;
-						coverage = MC_TRANSLUCENT;
+						SetCoverage(MC_TRANSLUCENT);
 					}
 					i = numStages;
 					break;
@@ -2253,7 +2385,7 @@ bool idMaterial::Parse( const char *text, const int textLength ) {
 			// post-process effects fill the depth buffer as they draw, so only the
 			// topmost post-process effect is rendered
 			pStage->drawStateBits |= GLS_DEPTHFUNC_LESS;
-		} else if ( coverage == MC_TRANSLUCENT || pStage->ignoreAlphaTest ) {
+		} else if (HasCoverage(MC_TRANSLUCENT) || pStage->ignoreAlphaTest ) {
 			// translucent surfaces can extend past the exactly marked depth buffer
 			pStage->drawStateBits |= GLS_DEPTHFUNC_LESS | GLS_DEPTHMASK;
 		} else {
@@ -2272,7 +2404,7 @@ bool idMaterial::Parse( const char *text, const int textLength ) {
 		if ( !IsDrawn() ) {
 			allowOverlays = false;
 		}
-		if ( Coverage() != MC_OPAQUE ) {
+		if ( !HasCoverage(MC_OPAQUE) ) {
 			allowOverlays = false;
 		}
 		if ( GetSurfaceFlags() & SURF_NOIMPACT ) {
@@ -2344,7 +2476,9 @@ static const char *opNames[] = {
 	"OP_TYPE_EQ",
 	"OP_TYPE_NE",
 	"OP_TYPE_AND",
-	"OP_TYPE_OR"
+	"OP_TYPE_OR",
+	"OP_TYPE_SOUND", // SM
+	"OP_TYPE_VIEWDIST" // SM
 };
 
 void idMaterial::Print() const {
@@ -2400,7 +2534,7 @@ set to their apropriate values.
 ===============
 */
 void idMaterial::EvaluateRegisters( float *registers, const float shaderParms[MAX_ENTITY_SHADER_PARMS],
-									const viewDef_t *view, idSoundEmitter *soundEmitter ) const {
+									const viewDef_t *view, idSoundEmitter *soundEmitter, const idVec3 *origin ) const {
 	int		i, b;
 	expOp_t	*op;
 
@@ -2431,6 +2565,9 @@ void idMaterial::EvaluateRegisters( float *registers, const float shaderParms[MA
 	registers[EXP_REG_GLOBAL5] = view->renderView.shaderParms[5];
 	registers[EXP_REG_GLOBAL6] = view->renderView.shaderParms[6];
 	registers[EXP_REG_GLOBAL7] = view->renderView.shaderParms[7];
+
+	// SM: Added to have a time that is not paused in materials
+	registers[EXP_REG_REALTIME] = Sys_Milliseconds() * 0.001f;
 
 	op = ops;
 	for ( i = 0 ; i < numOps ; i++, op++ ) {
@@ -2463,6 +2600,16 @@ void idMaterial::EvaluateRegisters( float *registers, const float shaderParms[MA
 				registers[op->c] = soundEmitter->CurrentAmplitude();
 			} else {
 				registers[op->c] = 0;
+			}
+			break;
+		case OP_TYPE_VIEWDIST:
+			if ( origin && view ) {
+				idVec3 diff = *origin - view->renderView.vieworg;
+				float length = diff.Length();
+				float value = ( length - op->a ) / ( op->b - op->a );
+				registers[op->c] = idMath::ClampFloat( 0.0f, 1.0f, value );
+			} else {
+				registers[op->c] = 0.0f;
 			}
 			break;
 		case OP_TYPE_GT:

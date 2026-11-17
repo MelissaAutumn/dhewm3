@@ -149,7 +149,8 @@ typedef enum {
 	TD_DIFFUSE,				// may be compressed
 	TD_DEFAULT,				// will use compressed formats when possible
 	TD_BUMP,				// may be compressed with 8 bit lookup
-	TD_HIGH_QUALITY			// either 32 bit or a component format, no loss at all
+	TD_HIGH_QUALITY,		// either 32 bit or a component format, no loss at all
+	TD_DEPTH,				// SM: For depth buffer copy
 } textureDepth_t;
 
 typedef enum {
@@ -289,6 +290,7 @@ ID_INLINE idImage::idImage() {
 	frameUsed = 0;
 	classification = 0;
 	backgroundLoadInProgress = false;
+	memset( &bgl, 0, sizeof(bgl) );
 	bgl.opcode = DLTYPE_FILE;
 	bgl.f = NULL;
 	bglNext = NULL;
@@ -342,6 +344,10 @@ public:
 	// The callback will be issued immediately, and later if images are reloaded or vid_restart
 	// The callback function should call one of the idImage::Generate* functions to fill in the data
 	idImage *			ImageFromFunction( const char *name, void (*generatorFunction)( idImage *image ));
+
+	// SM: This is used for images that just point to an FBO texture
+	// They won't actually allocate an OpenGL texture here, just reserve the name
+	idImage *			ImageFromFBO( const char* name, int internalFormat );
 
 	// called once a frame to allow any background loads that have been completed
 	// to turn into textures.
@@ -429,7 +435,11 @@ public:
 	idImage *			scratchImage;
 	idImage *			scratchImage2;
 	idImage *			accumImage;
-	idImage *			currentRenderImage;			// for SS_POST_PROCESS shaders
+	idImage *			currentRenderImage;			// Used for cases where non-SS_POST_PROCESS shaders need it
+	//idImage *			currentDepthImage;			// SM: Added depth buffer image
+	idImage *			currentPostProcessImage;	// SM: Used for post-process passes
+	idImage *			currentCustomImage;			// SM: Also used in post-process pass
+	idImage *			currentLightImage;			// SM: Stores current light values at each pixel
 	idImage *			scratchCubeMapImage;
 	idImage *			specularTableImage;			// 1D intensity texture with our specular function
 	idImage *			specular2DTableImage;		// 2D intensity texture with our specular function with variable specularity
@@ -470,8 +480,8 @@ public:
 };
 
 extern idImageManager	*globalImages;		// pointer to global list for the rest of the system
-
-int MakePowerOfTwo( int num );
+// SM: Don't declare this in the header
+//int MakePowerOfTwo( int num );
 
 /*
 ====================================================================
@@ -519,6 +529,6 @@ IMAGEPROGRAM
 */
 
 void R_LoadImageProgram( const char *name, byte **pic, int *width, int *height, ID_TIME_T *timestamp, textureDepth_t *depth = NULL );
-const char *R_ParsePastImageProgram( idLexer &src );
+const char *R_ParsePastImageProgram( idLexer &src, bool makePowerOf2 = true );
 
 #endif

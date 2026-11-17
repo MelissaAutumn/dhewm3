@@ -29,6 +29,8 @@ If you have questions concerning this license or the applicable additional terms
 #ifndef __STR_H__
 #define __STR_H__
 
+#include "sys/platform.h"
+#include "idlib/containers/List.h"
 #include "idlib/CmdArgs.h"
 
 /*
@@ -241,6 +243,11 @@ public:
 	void				StripTrailingWhitespace( void );				// strip trailing white space characters
 	idStr &				StripQuotes( void );							// strip quotes around string
 	void				Replace( const char *old, const char *nw );
+	bool				ReplaceChar( const char old, const char nw );
+	//ID_INLINE void		CopyRange( const char * text, int start, int end );
+	// SM
+	idList<idStr>		Split( char delimiter, bool stripWhitespace = false ); // splits string by delimiter, returning idStrList containing parts
+	bool				Matches( const idStr& pattern ) const; // returns true if matches the pattern including ? and * wildcards
 
 	// file name methods
 	int					FileNameHash( void ) const;						// hash key for the filename (skips extension)

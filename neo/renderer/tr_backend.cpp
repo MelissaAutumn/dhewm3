@@ -78,17 +78,17 @@ void RB_SetDefaultGLState( void ) {
 	qglShadeModel( GL_SMOOTH );
 
 	if ( r_useScissor.GetBool() ) {
-		qglScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
+		RB_SetScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
 	}
 
 	for ( i = glConfig.maxTextureUnits - 1 ; i >= 0 ; i-- ) {
 		GL_SelectTexture( i );
 
 		// object linear texgen is our default
-		qglTexGenf( GL_S, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
-		qglTexGenf( GL_T, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
-		qglTexGenf( GL_R, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
-		qglTexGenf( GL_Q, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
+// 		qglTexGenf( GL_S, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
+// 		qglTexGenf( GL_T, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
+// 		qglTexGenf( GL_R, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
+// 		qglTexGenf( GL_Q, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR );
 
 		GL_TexEnv( GL_MODULATE );
 		qglDisable( GL_TEXTURE_2D );
@@ -124,7 +124,7 @@ void GL_SelectTexture( int unit ) {
 	}
 
 	qglActiveTextureARB( GL_TEXTURE0_ARB + unit );
-	qglClientActiveTextureARB( GL_TEXTURE0_ARB + unit );
+	//qglClientActiveTextureARB( GL_TEXTURE0_ARB + unit );
 
 	backEnd.glState.currenttmu = unit;
 }
@@ -189,7 +189,7 @@ void GL_TexEnv( int env ) {
 	case GL_REPLACE:
 	case GL_DECAL:
 	case GL_ADD:
-		qglTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, env );
+		//qglTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, env );
 		break;
 	default:
 		common->Error( "GL_TexEnv: invalid env '%d' passed\n", env );
@@ -404,7 +404,7 @@ void RB_SetGL2D( void ) {
 	// set 2D virtual screen size
 	qglViewport( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
 	if ( r_useScissor.GetBool() ) {
-		qglScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
+		RB_SetScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
 	}
 	qglMatrixMode( GL_PROJECTION );
 	qglLoadIdentity();
@@ -439,24 +439,41 @@ static void	RB_SetBuffer( const void *data ) {
 
 	backEnd.frameCount = cmd->frameCount;
 
-	qglDrawBuffer( cmd->buffer );
+	//SM: Don't actually do this here because it's handled by the FBO
+	//qglDrawBuffer( cmd->buffer );
+
+	// Before doing the clear, make all attachments writable
+	GLenum colorBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
+	qglDrawBuffers(3, colorBuffers);
 
 	// clear screen for debugging
 	// automatically enable this with several other debug tools
 	// that might leave unrendered portions of the screen
 	if ( r_clear.GetFloat() || idStr::Length( r_clear.GetString() ) != 1 || r_lockSurfaces.GetBool() || r_singleArea.GetBool() || r_showOverDraw.GetBool() ) {
-		float c[3];
+		float c[4];
+		c[3] = 1.0f;
 		if ( sscanf( r_clear.GetString(), "%f %f %f", &c[0], &c[1], &c[2] ) == 3 ) {
 			qglClearColor( c[0], c[1], c[2], 1 );
 		} else if ( r_clear.GetInteger() == 2 ) {
-			qglClearColor( 0.0f, 0.0f,  0.0f, 1.0f );
+			c[0] = c[1] = c[2] = 0.0f; // Black
 		} else if ( r_showOverDraw.GetBool() ) {
-			qglClearColor( 1.0f, 1.0f, 1.0f, 1.0f );
+			c[0] = c[1] = c[2] = 1.0f; // White
 		} else {
-			qglClearColor( 0.4f, 0.0f, 0.25f, 1.0f );
+			// Purple
+			c[0] = c[2] = 1.0f;
+			c[1] = 0.0f;
 		}
-		qglClear( GL_COLOR_BUFFER_BIT );
+
+		qglClearColor(c[0], c[1], c[2], c[3]);
+		qglClearBufferfv(GL_COLOR, 0, c);
 	}
+
+	// Clear post process mask and light texture
+	GLuint clearValues[] = { 0, 0, 0, 0 };
+	qglClearBufferuiv(GL_COLOR, 1, clearValues);
+
+	GLfloat clearFloat[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	qglClearBufferfv(GL_COLOR, 2, clearFloat);
 }
 
 /*
@@ -605,6 +622,13 @@ const void	RB_SwapBuffers( const void *data ) {
 		qglFinish();
 	}
 
+	qglBindFramebuffer(GL_READ_FRAMEBUFFER, backEnd.frameBuffersIdsAllocated[backEnd.frameBufferId]);
+	qglBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+	qglBlitFramebuffer(0, 0, glConfig.vidWidth, glConfig.vidHeight,
+		0, 0, glConfig.vidWidth, glConfig.vidHeight,
+		GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	backEnd.frameBufferId = FRAME_DEFAULT_BACKBUFFER;
+
 	// don't flip if drawing to front buffer
 	if ( !r_frontBuffer.GetBool() ) {
 		GLimp_SwapBuffers();
@@ -632,6 +656,132 @@ const void	RB_CopyRender( const void *data ) {
 	}
 }
 
+
+
+/*
+=============
+RB_SetFrameBuffer
+
+blendo eric: targets the frame buffer id
+=============
+*/
+static void	RB_SetFrameBuffer(const void *data)
+{
+	const setFrameBufferCommand_t	*cmd;
+	cmd = (const setFrameBufferCommand_t *)data;
+
+	FrameBufferIds_t frameBufferIdIndex = cmd->frameBufferId;
+
+	// check if swap required
+	if (backEnd.frameBufferId != frameBufferIdIndex)
+	{
+		if ( frameBufferIdIndex != 0
+			&& backEnd.frameBuffersIdsAllocated[(int)frameBufferIdIndex] == 0 )
+		{ // alloc new frame buffer
+			unsigned int fbo = 0;
+			unsigned int texture = 0;
+			unsigned int depthStencil = 0;
+			unsigned int customMaskTexture = 0;
+			unsigned int lightTexture = 0;
+			qglGenFramebuffers(1, &fbo);
+			qglBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+			// create buffer texture
+			qglGenTextures(1, &texture);
+			qglBindTexture(GL_TEXTURE_2D, texture);
+			qglTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, glConfig.vidWidth, glConfig.vidHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+#ifdef _DEBUG
+			if (glConfig.khrDebugAvailable && r_debugGLContext.GetBool()) {
+				idStr name = idStr::Format("Color FBO #%d", fbo);
+				qglObjectLabel(GL_TEXTURE, texture, name.Length(), name.c_str());
+			}
+#endif
+
+			qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+			qglFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+
+			// create buffer depth/stencil
+			// (except for the post-process fbo which just needs a color target)
+			if (frameBufferIdIndex != FRAME_POSTPROCESSVIEW) {
+				qglGenTextures(1, &depthStencil);
+				qglBindTexture(GL_TEXTURE_2D, depthStencil);
+				qglTexImage2D(
+					GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, glConfig.vidWidth, glConfig.vidHeight, 0,
+					GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, NULL
+				);
+
+				qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+				qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+				qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+				qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+#ifdef _DEBUG
+				if (glConfig.khrDebugAvailable && r_debugGLContext.GetBool()) {
+					idStr name = idStr::Format("Depth/Stencil FBO #%d", fbo);
+					qglObjectLabel(GL_TEXTURE, texture, name.Length(), name.c_str());
+				}
+#endif
+				qglFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depthStencil, 0);
+
+				if (frameBufferIdIndex == FRAME_MAINVIEW)
+				{
+					globalImages->currentDepthImage->texnum = depthStencil;
+
+					// Create the texture for the customPostMask
+					qglGenTextures(1, &customMaskTexture);
+					globalImages->currentCustomImage->texnum = customMaskTexture;
+
+					qglBindTexture(GL_TEXTURE_2D, customMaskTexture);
+					qglTexImage2D(GL_TEXTURE_2D, 0, GL_R8UI, glConfig.vidWidth, glConfig.vidHeight, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, NULL);
+					qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+					qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+					qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+					qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+					// 5-25-2025 NOTE: because this is an integer texture, it must be the highest numbered
+					//       color attachment we use, to work around a Mesa bug that broke
+					//       blending when it thought an integer color attachment was bound
+					//       due to a buggy check (this works around the buggy check)
+					//       https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/34990
+					qglFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, customMaskTexture, 0);
+
+					qglGenTextures(1, &lightTexture);
+					globalImages->currentLightImage->texnum = lightTexture;
+
+					qglBindTexture(GL_TEXTURE_2D, lightTexture);
+					qglTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, glConfig.vidWidth, glConfig.vidHeight, 0, GL_RGB, GL_FLOAT, NULL);
+					qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+					qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+					qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+					qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+					qglFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, lightTexture, 0);
+				}
+			}
+
+			assert(qglCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+
+			backEnd.frameBuffersIdsAllocated[(int)frameBufferIdIndex] = fbo;
+			backEnd.frameBuffersTextureIdsAllocated[(int)frameBufferIdIndex] = texture;
+			backEnd.frameBuffersDepthIdsAllocated[(int)frameBufferIdIndex] = depthStencil;
+			backEnd.frameBuffersCustomMaskAllocated[(int)frameBufferIdIndex] = customMaskTexture;
+			backEnd.frameBuffersLightAllocated[(int)frameBufferIdIndex] = lightTexture;
+		}
+		else
+		{ // bind already allocd buffer
+			qglBindFramebuffer(GL_FRAMEBUFFER, backEnd.frameBuffersIdsAllocated[(int)frameBufferIdIndex]);
+		}
+
+		// If we're changing between main and postprocess, we need to make sure
+		// we update the texture number the next postprocess pass reads from
+		if (frameBufferIdIndex == FRAME_MAINVIEW || frameBufferIdIndex == FRAME_POSTPROCESSVIEW)
+		{
+			globalImages->currentPostProcessImage->texnum = backEnd.frameBuffersTextureIdsAllocated[(int)backEnd.frameBufferId];
+		}
+		backEnd.frameBufferId = frameBufferIdIndex;
+	}
+}
+
 /*
 ====================
 RB_ExecuteBackEndCommands
@@ -640,10 +790,10 @@ This function will be called syncronously if running without
 smp extensions, or asyncronously by another thread.
 ====================
 */
-int		backEndStartTime, backEndFinishTime;
+uint		backEndStartTime, backEndFinishTime;
 void RB_ExecuteBackEndCommands( const emptyCommand_t *cmds ) {
 	// r_debugRenderToTexture
-	int	c_draw3d = 0, c_draw2d = 0, c_setBuffers = 0, c_swapBuffers = 0, c_copyRenders = 0;
+	int	c_draw3d = 0, c_draw2d = 0, c_setBuffers = 0, c_swapBuffers = 0, c_copyRenders = 0, c_setFrameBuffers = 0;
 
 	if ( cmds->commandId == RC_NOP && !cmds->next ) {
 		return;
@@ -682,6 +832,18 @@ void RB_ExecuteBackEndCommands( const emptyCommand_t *cmds ) {
 			RB_CopyRender( cmds );
 			c_copyRenders++;
 			break;
+		case RC_SET_FRAME_BUFFER:
+			RB_SetFrameBuffer(cmds);
+			c_setFrameBuffers++;
+			break;
+		case RC_POST_EFFECT:
+		{
+			// Swap to the correct framebuffer
+			setFrameBufferCommand_t swapCmd;
+			swapCmd.frameBufferId = backEnd.frameBufferId == FRAME_MAINVIEW ? FRAME_POSTPROCESSVIEW : FRAME_MAINVIEW;
+			RB_SetFrameBuffer(&swapCmd);
+			break;
+		}
 		default:
 			common->Error( "RB_ExecuteBackEndCommands: bad commandId" );
 			break;

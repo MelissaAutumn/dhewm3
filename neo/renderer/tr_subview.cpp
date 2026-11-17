@@ -279,6 +279,7 @@ static viewDef_t *R_XrayViewBySurface( drawSurf_t *drawSurf ) {
 }
 
 /*
+//blendo eric: addded portalsky to remote render views
 ===============
 R_RemoteRender
 ===============
@@ -296,15 +297,22 @@ static void R_RemoteRender( drawSurf_t *surf, textureStage_t *stage ) {
 		return;
 	}
 
+	// blendo eric: use special remote view frame buffer
+	R_AddSetFrameBufferCmd(FrameBufferIds_t::FRAME_REMOTEVIEW);
+
+
 	// copy the viewport size from the original
 	parms = (viewDef_t *)R_FrameAlloc( sizeof( *parms ) );
 	*parms = *tr.viewDef;
 
-	parms->isSubview = true;
+	parms->renderView.forceUpdate = tr.portalSkyEnabled;
+
+	parms->isSubview = false;// true;
 	parms->isMirror = false;
 
 	parms->renderView = *surf->space->entityDef->parms.remoteRenderView;
-	parms->renderView.viewID = 0;	// clear to allow player bodies to show up, and suppress view weapons
+	// SM: Don't override the viewID for the subview so we can exclude entities from it if needed
+	//parms->renderView.viewID = 0;	// clear to allow player bodies to show up, and suppress view weapons
 	parms->initialViewAreaOrigin = parms->renderView.vieworg;
 
 	tr.CropRenderSize( stage->width, stage->height, true );
@@ -324,6 +332,23 @@ static void R_RemoteRender( drawSurf_t *surf, textureStage_t *stage ) {
 	parms->superView = tr.viewDef;
 	parms->subviewSurface = surf;
 
+	//blendo eric: portalsky render for remote views
+	if (tr.portalSkyEnabled)
+	{
+		viewDef_t * parms2;
+		parms2 = (viewDef_t *)R_FrameAlloc(sizeof(*parms2));
+		*parms2 = *parms;
+
+		parms2->renderView.viewID = 0;
+		parms2->initialViewAreaOrigin = tr.portalSkyOrigin;
+		parms2->renderView.vieworg = tr.portalSkyOrigin;
+
+		parms2->renderView.shaderParms[4] = tr.portalSkyViewShiftScale.x;
+		parms2->renderView.shaderParms[5] = tr.portalSkyViewShiftScale.y;
+
+		R_RenderView(parms2);
+	}
+
 	// generate render commands for it
 	R_RenderView(parms);
 
@@ -333,8 +358,12 @@ static void R_RemoteRender( drawSurf_t *surf, textureStage_t *stage ) {
 		stage->image = globalImages->scratchImage;
 	}
 
-	tr.CaptureRenderToImage( stage->image->imgName );
+	// blendo eric: consider using this image texture with the custom frame buffer texture
+	tr.CaptureRenderToImage(stage->image->imgName);
 	tr.UnCrop();
+
+	// blendo eric: swap back after done
+	R_AddSetFrameBufferCmd(FrameBufferIds_t::FRAME_MAINVIEW);
 }
 
 /*

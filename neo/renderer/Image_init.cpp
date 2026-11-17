@@ -46,7 +46,7 @@ const char *imageFilter[] = {
 };
 
 idCVar idImageManager::image_filter( "image_filter", imageFilter[1], CVAR_RENDERER | CVAR_ARCHIVE, "changes texture filtering on mipmapped images", imageFilter, idCmdSystem::ArgCompletion_String<imageFilter> );
-idCVar idImageManager::image_anisotropy( "image_anisotropy", "1", CVAR_RENDERER | CVAR_ARCHIVE, "set the maximum texture anisotropy if available" );
+idCVar idImageManager::image_anisotropy( "image_anisotropy", "8", CVAR_RENDERER | CVAR_ARCHIVE, "set the maximum texture anisotropy if available. Options: 1,2,4,8" ); //BC how good textures look far away.
 idCVar idImageManager::image_lodbias( "image_lodbias", "0", CVAR_RENDERER | CVAR_ARCHIVE, "change lod bias on mipmapped images" );
 idCVar idImageManager::image_downSize( "image_downSize", "0", CVAR_RENDERER | CVAR_ARCHIVE, "controls texture downsampling" );
 idCVar idImageManager::image_forceDownSize( "image_forceDownSize", "0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL, "" );
@@ -400,8 +400,8 @@ static void R_DepthImage( idImage *image ) {
 	data[0][0][2] = 48;
 	data[0][0][3] = 96;
 
-	image->GenerateImage( (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE,
-		TF_NEAREST, false, TR_CLAMP, TD_HIGH_QUALITY );
+	image->GenerateImage( ( byte * )data, DEFAULT_SIZE, DEFAULT_SIZE,
+		TF_NEAREST, false, TR_CLAMP, TD_DEPTH );
 }
 
 #if 0
@@ -1117,6 +1117,11 @@ void R_ReloadImages_f( const idCmdArgs &args ) {
 		image = globalImages->images[ i ];
 		image->Reload( checkPrecompressed, all );
 	}
+
+	GLimp_ClearFrameBuffers();
+
+	// Force a frame capture to resize the _currentRender correctly
+	renderSystem->CaptureRenderToImage("_currentRender");
 }
 
 typedef struct {
@@ -1501,6 +1506,41 @@ idImage *idImageManager::ImageFromFunction( const char *_name, void (*generatorF
 		image->referencedOutsideLevelLoad = true;
 		image->ActuallyLoadImage( true, false );
 	}
+
+	return image;
+}
+
+static void R_FBOImage(idImage* image)
+{
+	image->type = TT_2D;
+}
+
+idImage* idImageManager::ImageFromFBO(const char* _name, int internalFormat)
+{
+	idStr name;
+	idImage* image;
+	int	hash;
+
+	if (!name) {
+		common->FatalError("idImageManager::ImageFromFunction: NULL name");
+	}
+
+	// strip any .tga file extensions from anywhere in the _name
+	name = _name;
+	name.Replace(".tga", "");
+	name.BackSlashesToSlashes();
+
+	// see if the image already exists
+	hash = name.FileNameHash();
+	for (image = imageHashTable[hash]; image; image = image->hashNext) {
+		if (name.Icmp(image->imgName) == 0) {
+			return image;
+		}
+	}
+
+	image = AllocImage(name);
+	image->generatorFunction = R_FBOImage;
+	image->internalFormat = internalFormat;
 
 	return image;
 }
@@ -2009,7 +2049,10 @@ void idImageManager::Init() {
 	accumImage = ImageFromFunction("_accum", R_RGBA8Image );
 	scratchCubeMapImage = ImageFromFunction("_scratchCubeMap", makeNormalizeVectorCubeMap );
 	currentRenderImage = ImageFromFunction("_currentRender", R_RGBA8Image );
-	currentDepthImage = ImageFromFunction( "_currentDepth", R_DepthImage ); // #3877. Allow shaders to access scene depth
+	currentDepthImage = ImageFromFBO( "_currentDepth", GL_DEPTH24_STENCIL8 );
+	currentPostProcessImage = ImageFromFBO( "_currentPostProcess", GL_RGBA );
+	currentCustomImage = ImageFromFBO("_currentCustom", GL_R8UI );
+	currentLightImage = ImageFromFBO("_currentLight", GL_RGB );
 
 	cmdSystem->AddCommand( "reloadImages", R_ReloadImages_f, CMD_FL_RENDERER, "reloads images" );
 	cmdSystem->AddCommand( "listImages", R_ListImages_f, CMD_FL_RENDERER, "lists images" );

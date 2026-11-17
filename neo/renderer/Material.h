@@ -109,7 +109,8 @@ typedef enum {
 	OP_TYPE_NE,
 	OP_TYPE_AND,
 	OP_TYPE_OR,
-	OP_TYPE_SOUND
+	OP_TYPE_SOUND,
+	OP_TYPE_VIEWDIST // SM: Distance from the view
 } expOpType_t;
 
 typedef enum {
@@ -136,6 +137,9 @@ typedef enum {
 	EXP_REG_GLOBAL5,
 	EXP_REG_GLOBAL6,
 	EXP_REG_GLOBAL7,
+
+	// SM: Added to have a time that is not paused in materials
+	EXP_REG_REALTIME,
 
 	EXP_REG_NUM_PREDEFINED
 } expRegister_t;
@@ -202,6 +206,9 @@ typedef struct {
 	idImage *			fragmentProgramImages[MAX_FRAGMENT_IMAGES];
 
 	idMegaTexture		*megaTexture;		// handles all the binding and parameter setting
+
+	// SM: GLSL program name
+	idStr*				glslName;
 } newShaderStage_t;
 
 typedef struct {
@@ -221,10 +228,10 @@ typedef struct {
 } shaderStage_t;
 
 typedef enum {
-	MC_BAD,
-	MC_OPAQUE,			// completely fills the triangle, will have black drawn on fillDepthBuffer
-	MC_PERFORATED,		// may have alpha tested holes
-	MC_TRANSLUCENT		// blended with background
+	MC_BAD = BIT(0),
+	MC_OPAQUE = BIT(1),			// completely fills the triangle, will have black drawn on fillDepthBuffer
+	MC_PERFORATED = BIT(2),		// may have alpha tested holes
+	MC_TRANSLUCENT = BIT(3)	// blended with background
 } materialCoverage_t;
 
 typedef enum {
@@ -235,6 +242,7 @@ typedef enum {
 
 	SS_PORTAL_SKY,
 
+	SS_BLENDLIT,		// blendo eric: blend lit sorts after opaque and before other translucent fx
 	SS_DECAL,			// scorch marks, etc.
 
 	SS_FAR,
@@ -245,7 +253,8 @@ typedef enum {
 
 	SS_NEAREST,			// screen blood blobs
 
-	SS_POST_PROCESS = 100	// after a screen copy to texture
+	SS_POST_PROCESS = 100, // after a screen copy to texture
+	SS_MAX = 10000
 } materialSort_t;
 
 typedef enum {
@@ -269,7 +278,10 @@ typedef enum {
 	MF_FORCESHADOWS				= BIT(3),
 	MF_NOSELFSHADOW				= BIT(4),
 	MF_NOPORTALFOG				= BIT(5),	// this fog volume won't ever consider a portal fogged out
-	MF_EDITOR_VISIBLE			= BIT(6)	// in use (visible) per editor
+	MF_EDITOR_VISIBLE			= BIT(6),	// in use (visible) per editor
+	MF_BLENDLIT					= BIT(7),	// blendo eric: flag for ents with alpha blended lit rendering
+	MF_NODESATURATE				= BIT(8),	// SM: If set, this material should ignore the desaturate post process effect
+	MF_FONT						= BIT(9),	// blendo eric: flag for special font materials which replace the code generated ones
 } materialFlags_t;
 
 // contents flags, NOTE: make sure to keep the defines in doom_defs.script up to date with these!
@@ -291,9 +303,17 @@ typedef enum {
 	CONTENTS_AAS_OBSTACLE		= BIT(14),	// used to compile an obstacle into AAS that can be enabled/disabled
 	CONTENTS_FLASHLIGHT_TRIGGER	= BIT(15),	// used for triggers that are activated by the flashlight
 
+	CONTENTS_CLIMBCLIP			= BIT(16), //BC
+
+	CONTENTS_NOWALK				= BIT(17), // SW: Used to mark a 'no walk' volume. The AI can path out of it, but not into it
+
+	CONTENTS_NOBEACONCLIP		= BIT(18), // SM: Marks something that doesn't clip beacons
+	CONTENTS_NOCLIMBCLIP		= BIT(19), // SM: Opposite of CLIMBCLIP
+	CONTENTS_TRANSLUCENT		= BIT(20), // blendo eric: for aim assist and other glass piercing actions
 	// contents used by utils
-	CONTENTS_AREAPORTAL			= BIT(20),	// portal separating renderer areas
-	CONTENTS_NOCSG				= BIT(21),	// don't cut this brush with CSG operations in the editor
+	CONTENTS_AREAPORTAL			= BIT(21),	// portal separating renderer areas
+	CONTENTS_NOCSG				= BIT(22),	// don't cut this brush with CSG operations in the editor
+	CONTENTS_PLAYERLOOK_TRIGGER	= BIT(23),
 
 	CONTENTS_REMOVE_UTIL		= ~(CONTENTS_AREAPORTAL|CONTENTS_NOCSG)
 } contentsFlags_t;
@@ -313,8 +333,8 @@ typedef enum {
 	SURFTYPE_GLASS,
 	SURFTYPE_PLASTIC,
 	SURFTYPE_RICOCHET,
-	SURFTYPE_10,
-	SURFTYPE_11,
+	SURFTYPE_FABRIC,
+	SURFTYPE_TILE,
 	SURFTYPE_12,
 	SURFTYPE_13,
 	SURFTYPE_14,
@@ -337,8 +357,9 @@ typedef enum {
 	SURF_NOSTEPS				= BIT(9),	// no footstep sounds
 	SURF_DISCRETE				= BIT(10),	// not clipped or merged by utilities
 	SURF_NOFRAGMENT				= BIT(11),	// dmap won't cut surface at each bsp boundary
-	SURF_NULLNORMAL				= BIT(12)	// renderbump will draw this surface as 0x80 0x80 0x80, which
+	SURF_NULLNORMAL				= BIT(12),	// renderbump will draw this surface as 0x80 0x80 0x80, which
 											// won't collect light from any angle
+	SURF_LIGHTPROBE				= BIT(13)	// SW: Light probe material (does not render, but does interact with lighting)
 } surfaceFlags_t;
 
 class idSoundEmitter;
@@ -393,16 +414,16 @@ public:
 
 						// returns true if the material will generate shadows, not making a
 						// distinction between global and no-self shadows
-	bool				SurfaceCastsShadow( void ) const { return TestMaterialFlag( MF_FORCESHADOWS ) || !TestMaterialFlag( MF_NOSHADOWS ); }
+	bool				SurfaceCastsShadow( void ) const { return (TestMaterialFlag( MF_FORCESHADOWS ) || !TestMaterialFlag( MF_NOSHADOWS )) && !TestMaterialFlag(MF_BLENDLIT); }
 
 						// returns true if the material will generate interactions with fog/blend lights
 						// All non-translucent surfaces receive fog unless they are explicitly noFog
-	bool				ReceivesFog( void ) const { return ( IsDrawn() && !noFog && coverage != MC_TRANSLUCENT ); }
+	bool				ReceivesFog( void ) const { return ( IsDrawn() && !noFog && !HasCoverage(MC_TRANSLUCENT) ); }
 
 						// returns true if the material will generate interactions with normal lights
 						// Many special effect surfaces don't have any bump/diffuse/specular
 						// stages, and don't interact with lights at all
-	bool				ReceivesLighting( void ) const { return numAmbientStages != numStages; }
+	bool				ReceivesLighting( void ) const { return (numAmbientStages != numStages) || GetSurfaceFlags() & SURF_LIGHTPROBE; }
 
 						// returns true if the material should generate interactions on sides facing away
 						// from light centers, as with noshadow and noselfshadow options
@@ -430,6 +451,10 @@ public:
 						// The depth buffer will not be filled for MC_TRANSLUCENT surfaces
 						// FIXME: what do nodraw surfaces return?
 	materialCoverage_t	Coverage( void ) const { return coverage; }
+
+	// blendo eric: test for coverage as bitwise
+	void				SetCoverage(materialCoverage_t newCoverage) { coverage = newCoverage; }
+	bool				HasCoverage(materialCoverage_t coverageTest) const { return ((coverageTest & coverage) != 0) || (coverageTest == coverage); }
 
 						// returns true if this material takes precedence over other in coplanar cases
 	bool				HasHigherDmapPriority( const idMaterial &other ) const { return ( IsDrawn() && !other.IsDrawn() ) ||
@@ -466,6 +491,9 @@ public:
 
 						// an ambient light has non-directional bump mapping and no specular
 	bool				IsAmbientLight() const { return ambientLight; }
+
+						// Should the player luminance code always sample this light source as if we're in the middle of it?
+	bool				ShouldSampleFromCentre() const { return sampleFromCentre; }
 
 						// implicitly no-shadows lights (ambients, fogs, etc) will never cast shadows
 						// but individual light entities can also override this value
@@ -580,7 +608,7 @@ public:
 
 						// regs should point to a float array large enough to hold GetNumRegisters() floats
 	void				EvaluateRegisters( float *regs, const float entityParms[MAX_ENTITY_SHADER_PARMS],
-											const struct viewDef_s *view, idSoundEmitter *soundEmitter = NULL ) const;
+											const struct viewDef_s *view, idSoundEmitter *soundEmitter = NULL, const class idVec3 *origin = NULL ) const;
 
 						// if a material only uses constants (no entityParm or globalparm references), this
 						// will return a pointer to an internal table, and EvaluateRegisters will not need
@@ -660,6 +688,7 @@ private:
 	bool				unsmoothedTangents;
 	bool				hasSubview;			// mirror, remote render, etc
 	bool				allowOverlays;
+	bool				sampleFromCentre;	// SW: Tells player luminance code to always sample this light as if we are in the middle of it. No relevance to non-lights
 
 	int					numOps;
 	expOp_t *			ops;				// evaluate to make expressionRegisters

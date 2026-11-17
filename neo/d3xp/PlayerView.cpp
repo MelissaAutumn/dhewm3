@@ -39,7 +39,7 @@ If you have questions concerning this license or the applicable additional terms
 // _D3XP : rename all gameLocal.time to gameLocal.slow.time for merge!
 
 #ifdef _D3XP
-static int MakePowerOfTwo( int num ) {
+int MakePowerOfTwo( int num ) {
 	int		pot;
 	for (pot = 1 ; pot < num ; pot<<=1) {
 	}

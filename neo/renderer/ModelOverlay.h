@@ -37,7 +37,7 @@ If you have questions concerning this license or the applicable additional terms
 ===============================================================================
 */
 
-const int MAX_OVERLAY_SURFACES	= 16;
+const int MAX_OVERLAY_SURFACES	= 32;
 
 typedef struct overlayVertex_s {
 	int							vertexNum;

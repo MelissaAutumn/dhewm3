@@ -168,11 +168,44 @@ ResizeInteractionTable
 ===================
 */
 void idRenderWorldLocal::ResizeInteractionTable() {
-	// we overflowed the interaction table, so dump it
-	// we may want to resize this in the future if it turns out to be common
-	common->Printf( "idRenderWorldLocal::ResizeInteractionTable: overflowed interactionTableWidth, dumping\n" );
-	R_StaticFree( interactionTable );
-	interactionTable = NULL;
+	//blendo eric: this previously just dealloc'd, moved the alloc over and increased default table size
+	if (interactionTable)
+	{
+		// we overflowed the interaction table, so dump it
+		// we may want to resize this in the future if it turns out to be common
+		common->Printf("idRenderWorldLocal::ResizeInteractionTable: overflowed interactionTableWidth, dumping\n");
+
+		R_StaticFree(interactionTable);
+		interactionTable = NULL;
+	}
+
+	// build the interaction table
+	if (r_useInteractionTable.GetBool()) {
+		interactionTableWidth = entityDefs.Num() + 1000;
+		interactionTableWidth = interactionTableWidth > 8192 ? 8192 : interactionTableWidth;
+		interactionTableHeight = lightDefs.Num() + 200;
+		int	size = interactionTableWidth * interactionTableHeight * sizeof(*interactionTable);
+		interactionTable = (idInteraction **)R_ClearedStaticAlloc(size);
+
+		int	count = 0;
+		for (int i = 0; i < this->lightDefs.Num(); i++) {
+			idRenderLightLocal	*ldef = this->lightDefs[i];
+			if (!ldef) {
+				continue;
+			}
+			idInteraction	*inter;
+			for (inter = ldef->firstInteraction; inter != NULL; inter = inter->lightNext) {
+				idRenderEntityLocal	*edef = inter->entityDef;
+				int index = ldef->index * interactionTableWidth + edef->index;
+
+				interactionTable[index] = inter;
+				count++;
+			}
+		}
+
+		common->DPrintf("interactionTable size: %i bytes\n", size);
+		common->DPrintf("%d interaction take %zd bytes\n", count, count * sizeof(idInteraction));
+	}
 }
 
 /*
@@ -351,6 +384,26 @@ const renderEntity_t *idRenderWorldLocal::GetRenderEntity( qhandle_t entityHandl
 	}
 
 	return &def->parms;
+}
+
+/*
+==================
+idRenderWorldLocal::AddGlobalRenderEnt
+==================
+*/
+void idRenderWorldLocal::AddGlobalRenderEnt(qhandle_t handle)
+{
+	globalRenderEnts.AddUnique(handle);
+}
+
+/*
+==================
+idRenderWorldLocal::RemoveGlobalRenderEnt
+==================
+*/
+void idRenderWorldLocal::RemoveGlobalRenderEnt(qhandle_t handle)
+{
+	globalRenderEnts.Remove(handle);
 }
 
 /*
@@ -633,6 +686,18 @@ void idRenderWorldLocal::ProjectOverlay( qhandle_t entityHandle, const idPlane l
 	def->overlay->CreateOverlay( model, localTextureAxis, material );
 }
 
+void idRenderWorldLocal::RemoveAllDecals(void)
+{
+	for (int i = 0; i < entityDefs.Num(); i++) {
+		idRenderEntityLocal* model;
+
+		model = entityDefs[i];
+		if (model && model->world == this) {
+			RemoveDecals(i);
+		}
+	}
+}
+
 /*
 ====================
 idRenderWorldLocal::RemoveDecals
@@ -801,9 +866,9 @@ void idRenderWorldLocal::RenderScene( const renderView_t *renderView ) {
 	}
 #endif
 
-	int endTime = Sys_Milliseconds();
+    int endTime = Sys_Milliseconds();
 
-	tr.pc.frontEndMsec += endTime - startTime;
+    tr.pc.frontEndMsec += endTime - startTime;
 
 	// prepare for any 2D drawing after this
 	tr.guiModel->Clear();
@@ -874,6 +939,33 @@ exitPortal_t idRenderWorldLocal::GetPortal( int areaNum, int portalNum ) {
 
 	memset( &ret, 0, sizeof( ret ) );
 	return ret;
+}
+
+/*
+===================
+GetAreaCenter
+===================
+*/
+idVec3 idRenderWorldLocal::GetAreaCenter( int areaNum ) const {
+	portal_t	*portal = nullptr;
+
+	assert( areaNum >= 0 && areaNum < numPortalAreas );
+
+	idVec3 position = vec3_zero;
+	int count = 0;
+
+	for ( portal = portalAreas[areaNum].portals; portal; portal = portal->next ) {
+		if ( portal && portal->w ) {
+			int numPoints = portal->w->GetNumPoints();
+			for ( int j = 0; j < numPoints; j++ ) {
+				position += ( *portal->w )[j].ToVec3();
+				count++;
+			}
+		}
+	}
+
+	position /= count;
+	return position;
 }
 
 /*
@@ -1144,7 +1236,7 @@ bool idRenderWorldLocal::ModelTrace( modelTrace_t &trace, qhandle_t entityHandle
 			}
 		} else {
 			// skip if not drawn or translucent
-			if ( !shader->IsDrawn() || ( shader->Coverage() != MC_OPAQUE && shader->Coverage() != MC_PERFORATED ) ) {
+			if ( !shader->IsDrawn() || ( !shader->HasCoverage(MC_OPAQUE) && !shader->HasCoverage(MC_PERFORATED) ) ) {
 				continue;
 			}
 		}
@@ -1501,33 +1593,8 @@ void idRenderWorldLocal::GenerateAllInteractions() {
 
 	common->Printf( "idRenderWorld::GenerateAllInteractions, msec = %i, staticAllocCount = %i.\n", msec, tr.staticAllocCount );
 
-
-	// build the interaction table
-	if ( r_useInteractionTable.GetBool() ) {
-		interactionTableWidth = entityDefs.Num() + 100;
-		interactionTableHeight = lightDefs.Num() + 100;
-		int	size =  interactionTableWidth * interactionTableHeight * sizeof( *interactionTable );
-		interactionTable = (idInteraction **)R_ClearedStaticAlloc( size );
-
-		int	count = 0;
-		for ( int i = 0 ; i < this->lightDefs.Num() ; i++ ) {
-			idRenderLightLocal	*ldef = this->lightDefs[i];
-			if ( !ldef ) {
-				continue;
-			}
-			idInteraction	*inter;
-			for ( inter = ldef->firstInteraction; inter != NULL; inter = inter->lightNext ) {
-				idRenderEntityLocal	*edef = inter->entityDef;
-				int index = ldef->index * interactionTableWidth + edef->index;
-
-				interactionTable[ index ] = inter;
-				count++;
-			}
-		}
-
-		common->Printf( "interactionTable size: %i bytes\n", size );
-		common->Printf( "%d interaction take %zd bytes\n", count, count * sizeof( idInteraction ) );
-	}
+	// blendo eric: moved allocation to ResizeInteractionTable
+	ResizeInteractionTable();
 
 	// entities flagged as noDynamicInteractions will no longer make any
 	generateAllInteractionsCalled = true;
@@ -1815,6 +1882,17 @@ void idRenderWorldLocal::DebugArrow( const idVec4 &color, const idVec3 &start, c
 	}
 }
 
+//BC quick n dirty way of plopping a basic location arrow in the world.
+void idRenderWorldLocal::DebugArrowSimple(const idVec3 &end, const int lifetime, idVec4 color)
+{
+	DebugArrow(color, end + idVec3(0, 0, 64), end, 6, lifetime);
+}
+
+void idRenderWorldLocal::DebugTextSimple(const char *text, const idVec3 &origin, const int lifetime, idVec4 color)
+{
+	DrawText(text, origin, 0.5f, color, mat3_identity, 1, lifetime);
+}
+
 /*
 ====================
 idRenderWorldLocal::DebugWinding
@@ -1900,7 +1978,7 @@ void idRenderWorldLocal::DebugSphere( const idVec4 &color, const idSphere &spher
 idRenderWorldLocal::DebugBounds
 ====================
 */
-void idRenderWorldLocal::DebugBounds( const idVec4 &color, const idBounds &bounds, const idVec3 &org, const int lifetime ) {
+void idRenderWorldLocal::DebugBounds( const idVec4 &color, const idBounds &bounds, const idVec3 &org, const int lifetime, const idMat3 * axis ) {
 	int i;
 	idVec3 v[8];
 
@@ -1908,11 +1986,25 @@ void idRenderWorldLocal::DebugBounds( const idVec4 &color, const idBounds &bound
 		return;
 	}
 
-	for ( i = 0; i < 8; i++ ) {
-		v[i][0] = org[0] + bounds[(i^(i>>1))&1][0];
-		v[i][1] = org[1] + bounds[(i>>1)&1][1];
-		v[i][2] = org[2] + bounds[(i>>2)&1][2];
+	if(axis)
+	{
+		for ( i = 0; i < 8; i++ ) {
+			v[i][0] = bounds[(i^(i>>1))&1][0];
+			v[i][1] = bounds[(i>>1)&1][1];
+			v[i][2] = bounds[(i>>2)&1][2];
+
+			v[i] = (*axis)*v[i] + org;
+		}
 	}
+	else
+	{
+		for ( i = 0; i < 8; i++ ) {
+			v[i][0] = org[0] + bounds[(i^(i>>1))&1][0];
+			v[i][1] = org[1] + bounds[(i>>1)&1][1];
+			v[i][2] = org[2] + bounds[(i>>2)&1][2];
+		}
+	}
+
 	for ( i = 0; i < 4; i++ ) {
 		DebugLine( color, v[i], v[(i+1)&3], lifetime );
 		DebugLine( color, v[4+i], v[4+((i+1)&3)], lifetime );
@@ -1925,15 +2017,15 @@ void idRenderWorldLocal::DebugBounds( const idVec4 &color, const idBounds &bound
 idRenderWorldLocal::DebugBox
 ====================
 */
-void idRenderWorldLocal::DebugBox( const idVec4 &color, const idBox &box, const int lifetime ) {
+void idRenderWorldLocal::DebugBox( const idVec4 &color, const idBox &box, const int lifetime, const bool depthTest) {
 	int i;
 	idVec3 v[8];
 
 	box.ToPoints( v );
 	for ( i = 0; i < 4; i++ ) {
-		DebugLine( color, v[i], v[(i+1)&3], lifetime );
-		DebugLine( color, v[4+i], v[4+((i+1)&3)], lifetime );
-		DebugLine( color, v[i], v[4+i], lifetime );
+		DebugLine( color, v[i], v[(i+1)&3], lifetime, depthTest );
+		DebugLine( color, v[4+i], v[4+((i+1)&3)], lifetime, depthTest);
+		DebugLine( color, v[i], v[4+i], lifetime, depthTest);
 	}
 }
 
@@ -2117,10 +2209,25 @@ void idRenderWorldLocal::RegenerateWorld() {
 
 /*
 ===============
+idRenderWorldLocal::RemapShaderBySkin
+===============
+*/
+const idMaterial* idRenderWorldLocal::RemapShaderBySkin(const idMaterial* shader, const idDeclSkin* skin)
+{
+	return R_RemapShaderBySkin(shader, skin, NULL);
+}
+
+/*
+===============
 R_GlobalShaderOverride
 ===============
 */
 bool R_GlobalShaderOverride( const idMaterial **shader ) {
+
+	if ((*shader) == NULL) //BC this is a band-aid fix for a crash. The crash seems somehow related to hazardpipe damage jets during normal combat gameplay
+	{
+		return false;
+	}
 
 	if ( !(*shader)->IsDrawn() ) {
 		return false;

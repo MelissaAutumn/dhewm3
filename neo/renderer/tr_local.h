@@ -54,6 +54,13 @@ const int FOG_ENTER_SIZE = 64;
 const float FOG_ENTER = (FOG_ENTER_SIZE+1.0f)/(FOG_ENTER_SIZE*2);
 // picky to get the bilerp correct at terminator
 
+// SW: Used to control the spectrum of light that an entity interacts with
+enum {
+	SPECTRUM_UNSPECIFIED = -1,
+	SPECTRUM_INTERIOR = 0,
+	SPECTRUM_EXTERIOR = 1,
+	SPECTRUM_GLOBAL = 777
+};
 
 // idScreenRect gets carried around with each drawSurf, so it makes sense
 // to keep it compact, instead of just using the idBounds class
@@ -69,6 +76,10 @@ public:
 	void		Union( const idScreenRect &rect );
 	bool		Equals( const idScreenRect &rect ) const;
 	bool		IsEmpty() const;
+
+
+	//From BFG
+	int			GetArea() const { return (x2 - x1 + 1) * (y2 - y1 + 1); }
 };
 
 idScreenRect R_ScreenRectFromViewFrustumBounds( const idBounds &bounds );
@@ -117,6 +128,7 @@ typedef struct drawSurf_s {
 	const idMaterial		*material;	// may be NULL for shadow volumes
 	float					sort;		// material->sort, modified by gui / entity sort offsets
 	const float				*shaderRegisters;	// evaluated and adjusted for referenceShaders
+	idImage*				fragmentMapOverride; // lets us change fragment map 0 at runtime
 	const struct drawSurf_s	*nextOnLight;	// viewLight chains
 	idScreenRect			scissorRect;	// for scissor clipping, local inside renderView viewport
 	int						dsFlags;			// DSF_VIEW_INSIDE_SHADOW, etc
@@ -335,6 +347,7 @@ typedef struct viewLight_s {
 	const struct drawSurf_s	*localInteractions;			// don't get local shadows
 	const struct drawSurf_s	*localShadows;				// don't shadow local Surfaces
 	const struct drawSurf_s	*globalInteractions;		// get shadows from everything
+	const struct drawSurf_s	*blendLitInteractions;		// get shadows from everything
 	const struct drawSurf_s	*translucentInteractions;	// get shadows from everything
 } viewLight_t;
 
@@ -349,6 +362,7 @@ typedef struct viewEntity_s {
 	struct viewEntity_s	*next;
 
 	// back end should NOT reference the entityDef, because it can change when running SMP
+	// SM: We don't actually ever run SMP so accessing this should be safe
 	idRenderEntityLocal	*entityDef;
 
 	// for scissor clipping, local inside renderView viewport
@@ -452,6 +466,8 @@ typedef struct {
 
 	int					ambientLight;	// use tr.ambientNormalMap instead of normalization cube map
 	// (not a bool just to avoid an uninitialized memory check of the pad region by valgrind)
+	// <blendo> eric: makes light angle independent
+	idVec4					isAmbientLight;
 
 	// these are loaded into the vertex program
 	idVec4				localLightOrigin;
@@ -478,8 +494,10 @@ typedef enum {
 	RC_DRAW_VIEW,
 	RC_SET_BUFFER,
 	RC_COPY_RENDER,
-	RC_SWAP_BUFFERS		// can't just assume swap at end of list because
+	RC_SWAP_BUFFERS,		// can't just assume swap at end of list because
 						// of forced list submission before syncs
+	RC_SET_FRAME_BUFFER, // blendo eric: sets render to texture frame buffer
+	RC_POST_EFFECT, // SM: Called when drawing a post effect
 } renderCommand_t;
 
 typedef struct {
@@ -504,6 +522,29 @@ typedef struct {
 	int		cubeFace;					// when copying to a cubeMap
 } copyRenderCommand_t;
 
+
+// blendo eric: frame buffer id (index) corresponds to array of frame buffer gl ids
+typedef enum {
+	FRAME_DEFAULT_BACKBUFFER = 0,
+	FRAME_MAINVIEW,
+	FRAME_REMOTEVIEW,
+	FRAME_POSTPROCESSVIEW,
+	FRAME_MAX
+} FrameBufferIds_t;
+
+// blendo eric: render command to change current frame buffer
+typedef struct {
+	renderCommand_t		commandId, *next;
+	FrameBufferIds_t frameBufferId;
+} setFrameBufferCommand_t;
+
+// blendo eric: adds render command to change current frame buffer (if different)
+void R_AddSetFrameBufferCmd(FrameBufferIds_t id);
+
+typedef struct {
+	renderCommand_t		commandId, * next;
+} postEffectCommand_t;
+void R_AddPostEffectCmd();
 
 //=======================================================================
 
@@ -590,7 +631,8 @@ typedef struct {
 	int		c_tangentIndexes;	// R_DeriveTangents()
 	int		c_entityUpdates, c_lightUpdates, c_entityReferences, c_lightReferences;
 	int		c_guiSurfs;
-	int		frontEndMsec;		// sum of time in all RE_RenderScene's in a frame
+	int		c_frameBufferSwaps;
+	double	frontEndMsec;		// sum of time in all RE_RenderScene's in a frame
 } performanceCounters_t;
 
 
@@ -634,7 +676,7 @@ typedef struct {
 	float	c_overDraw;
 
 	float	maxLightValue;	// for light scale
-	int		msec;			// total msec for backend run
+	double	msec;			// total msec for backend run
 } backEndCounters_t;
 
 // all state modified by the back end is separated
@@ -666,6 +708,17 @@ typedef struct {
 	glstate_t			glState;
 
 	int					c_copyFrameBuffer;
+
+	materialSort_t		materialStageCutoffInclusive; // blendo eric: allow for more refined non-interaction rendering passes
+	idMat4				invViewProj;
+	idMat4				prevViewProj;
+
+	FrameBufferIds_t	frameBufferId; // blendo eric: current framebuffer id
+	unsigned int		frameBuffersIdsAllocated[(int)FrameBufferIds_t::FRAME_MAX];
+	unsigned int		frameBuffersTextureIdsAllocated[(int)FrameBufferIds_t::FRAME_MAX];
+	unsigned int		frameBuffersDepthIdsAllocated[(int)FrameBufferIds_t::FRAME_MAX];
+	unsigned int		frameBuffersCustomMaskAllocated[(int)FrameBufferIds_t::FRAME_MAX];
+	unsigned int		frameBuffersLightAllocated[(int)FrameBufferIds_t::FRAME_MAX];
 } backEndState_t;
 
 
@@ -673,7 +726,7 @@ const int MAX_GUI_SURFACES	= 1024;		// default size of the drawSurfs list for gu
 										// be automatically expanded as needed
 
 typedef enum {
-	BE_ARB2,
+	BE_GLSL,
 	BE_BAD
 } backEndName_t;
 
@@ -696,7 +749,8 @@ public:
 	virtual void			InitOpenGL( void );
 	virtual void			ShutdownOpenGL( void );
 	virtual bool			IsOpenGLRunning( void ) const;
-	virtual bool			IsFullScreen( void ) const;
+	virtual bool			IsFullScreen(void) const;
+	virtual bool			IsBorderless(void) const;
 	virtual int				GetScreenWidth( void ) const;
 	virtual int				GetScreenHeight( void ) const;
 	virtual idRenderWorld *	AllocRenderWorld( void );
@@ -704,11 +758,15 @@ public:
 	virtual void			BeginLevelLoad( void );
 	virtual void			EndLevelLoad( void );
 	virtual bool			RegisterFont( const char *fontName, fontInfoEx_t &font );
+//	virtual void			ResetFonts();
 	virtual void			SetColor( const idVec4 &rgba );
 	virtual void			SetColor4( float r, float g, float b, float a );
 	virtual void			DrawStretchPic ( const idDrawVert *verts, const glIndex_t *indexes, int vertCount, int indexCount, const idMaterial *material,
 											bool clip = true, float x = 0.0f, float y = 0.0f, float w = 640.0f, float h = 0.0f );
 	virtual void			DrawStretchPic ( float x, float y, float w, float h, float s1, float t1, float s2, float t2, const idMaterial *material );
+
+	//BC Draws rotated image. Angle is in radians.
+	virtual void			DrawStretchPicRotated(float x, float y, float w, float h, float s0, float t0, float s1, float t1, const idMaterial *mat, float angle = 0.0f);
 
 	virtual void			DrawStretchTri ( idVec2 p1, idVec2 p2, idVec2 p3, idVec2 t1, idVec2 t2, idVec2 t3, const idMaterial *material );
 	virtual void			GlobalToNormalizedDeviceCoordinates( const idVec3 &global, idVec3 &ndc );
@@ -728,7 +786,22 @@ public:
 	virtual void			CaptureRenderToImage( const char *imageName );
 	virtual void			CaptureRenderToFile( const char *fileName, bool fixAlpha );
 	virtual void			UnCrop();
+	virtual void			PrepareForPostProcessPass();
 	virtual bool			UploadImage( const char *imageName, const byte *data, int width, int height );
+	virtual int				GetImageBytes(idImage* img, byte** bytes);
+	virtual bool			PrimaryViewExists();
+
+
+	//BC
+	//virtual void			DrawMicroChar(float x, float y, int ch, const idMaterial *material);
+	//virtual void			DrawMicroStringExt(float x, float y, const char *string, const idVec4 &setColor, const idMaterial *material);
+
+	//SM
+	virtual bool			UseBlendoAmbience() const;
+	virtual void			SetUseBlendoAmbience(bool setting) { useBlendoAmbience = setting; }
+	virtual float			GetBlendoAmbienceScale() const;
+
+	virtual void			UpdateScreenWidth();
 
 public:
 	// internal functions
@@ -809,6 +882,17 @@ public:
 	// DG: taken from the current map's worldspawn ("allow_nospecular")
 	//     true if (unlike in Vanilla Doom3) the "nospecular" parm of a light should be respected
 	bool					allowNoSpecular;
+
+	//blendo eric: a bit of a hack to collect frame allocated font surfaces to do multipass lighting on
+	idList<drawSurf_s*> frameGuiSurfs;
+	void ClearFontSurfData() { frameGuiSurfs.SetNum(0, false); }
+
+	bool					useBlendoAmbience;
+
+	// blendo eric: portalsky info
+	bool					portalSkyEnabled;
+	idVec3					portalSkyOrigin;
+	idVec2					portalSkyViewShiftScale;
 };
 
 extern backEndState_t		backEnd;
@@ -993,6 +1077,12 @@ extern idCVar r_glDebugContext; // DG: use debug context to call logging callbac
 extern idCVar r_enableDepthCapture; // DG: disable capturing depth buffer, used for soft particles
 extern idCVar r_useSoftParticles;
 
+extern idCVar r_useBlendoAmbience;
+extern idCVar r_blendoAmbienceScale;
+extern idCVar r_stencilReverse;			// blendo eric: carmack's reverse
+extern idCVar r_useStencilOpSeparate;	// DG: to further speed up carmack's reverse
+extern idCVar r_blendoTriangleCount;    // blendo eric: only draw a x triangle per primitive, -1 off, for perf testing
+
 /*
 ====================================================================
 
@@ -1076,8 +1166,8 @@ IMPLEMENTATION SPECIFIC FUNCTIONS
 typedef struct {
 	int			width;
 	int			height;
-	bool		fullScreen;
-	bool		fullScreenDesktop;
+	int		    fullScreen;
+	bool		borderless; // blendo eric
 	bool		stereo;
 	int			displayHz; // TODO: SDL3 uses float
 	int			multiSamples;
@@ -1109,6 +1199,9 @@ void		GLimp_SetGamma( unsigned short red[256],
 
 void		GLimp_ResetGamma();
 // resets the gamma to what it was at startup
+
+// blendo eric: deletes frame buffers for res changes
+void		GLimp_ClearFrameBuffers();
 
 // Returns false if the system only has a single processor
 
@@ -1148,9 +1241,11 @@ MAIN
 void R_RenderView( viewDef_t *parms );
 
 // performs radius cull first, then corner cull
-bool R_CullLocalBox( const idBounds &bounds, const float modelMatrix[16], int numPlanes, const idPlane *planes );
+#if !defined(__BLENDO_INLINE_CULL__)
+bool R_CullLocalBox( const idBounds &bounds, const float modelMatrix[16], int numPlanes, const idPlane *planes, bool noFrustumCull = false );
 bool R_RadiusCullLocalBox( const idBounds &bounds, const float modelMatrix[16], int numPlanes, const idPlane *planes );
 bool R_CornerCullLocalBox( const idBounds &bounds, const float modelMatrix[16], int numPlanes, const idPlane *planes );
+#endif
 
 void R_AxisToModelMatrix( const idMat3 &axis, const idVec3 &origin, float modelMatrix[16] );
 
@@ -1197,7 +1292,7 @@ void R_AddDrawSurf( const srfTriangles_t *tri, const viewEntity_t *space, const 
 					const idMaterial *shader, const idScreenRect &scissor, const float soft_particle_radius = -1.0f ); // soft particles in #3878
 
 void R_LinkLightSurf( const drawSurf_t **link, const srfTriangles_t *tri, const viewEntity_t *space,
-				   const idRenderLightLocal *light, const idMaterial *shader, const idScreenRect &scissor, bool viewInsideShadow );
+	const idRenderLightLocal *light, const idMaterial *shader, const idScreenRect &scissor, bool viewInsideShadow, const float * customShaderParms = NULL); //blendo eric: added custom shader param
 
 bool R_CreateAmbientCache( srfTriangles_t *tri, bool needsLighting );
 bool R_CreateLightingCache( const idRenderEntityLocal *ent, const idRenderLightLocal *light, srfTriangles_t *tri );
@@ -1266,6 +1361,7 @@ void RB_LeaveDepthHack();
 void RB_DrawElementsImmediate( const srfTriangles_t *tri );
 void RB_RenderTriangleSurface( const srfTriangles_t *tri );
 void RB_T_RenderTriangleSurface( const drawSurf_t *surf );
+void RB_T_RenderDebugTriangleSurface( const drawSurf_t *surf );
 void RB_RenderDrawSurfListWithFunction( drawSurf_t **drawSurfs, int numDrawSurfs,
 					  void (*triFunc_)( const drawSurf_t *) );
 void RB_RenderDrawSurfChainWithFunction( const drawSurf_t *drawSurfs,
@@ -1293,6 +1389,7 @@ DRAW_STANDARD
 
 void RB_DrawElementsWithCounters( const srfTriangles_t *tri );
 void RB_DrawShadowElementsWithCounters( const srfTriangles_t *tri, int numIndexes );
+void RB_STD_FillCustomMask(drawSurf_t** drawSurfs, int numDrawSurfs);
 void RB_STD_FillDepthBuffer( drawSurf_t **drawSurfs, int numDrawSurfs );
 void RB_BindVariableStageImage( const textureStage_t *texture, const float *shaderRegisters );
 void RB_BindStageTexture( const float *shaderRegisters, const textureStage_t *texture, const drawSurf_t *surf );
@@ -1301,6 +1398,11 @@ void RB_StencilShadowPass( const drawSurf_t *drawSurfs );
 void RB_STD_DrawView( void );
 void RB_STD_FogAllLights( void );
 void RB_BakeTextureMatrixIntoTexgen( idPlane lightProject[3], const float textureMatrix[16] );
+void RB_LoadMatrix(const float* matrix, GLenum matrixMode);
+void RB_LoadMatrixIdentity(GLenum matrixMode);
+void RB_SetProgramEnv(GLenum target, GLuint index, const idVec4& params);
+void RB_SetProgramLocal(GLenum target, GLuint index, const idVec4& params);
+void RB_SetScissor(GLint x, GLint y, GLsizei width, GLsizei height);
 
 /*
 ============================================================
@@ -1334,6 +1436,8 @@ typedef enum {
 	VPROG_SOFT_PARTICLE,
 	FPROG_SOFT_PARTICLE,
 	//
+	VPROG_BLENDLIT,
+	FPROG_BLENDLIT,
 	PROG_USER
 } program_t;
 
@@ -1381,9 +1485,10 @@ typedef enum {
 	PP_SPECULAR_MATRIX_S,
 	PP_SPECULAR_MATRIX_T,
 	PP_COLOR_MODULATE,
-	PP_COLOR_ADD, // 17
-
-	PP_LIGHT_FALLOFF_TQ = 20,	// only for NV programs - DG: unused
+	PP_COLOR_ADD,
+	PP_AMBIENT_LEVEL,
+	PP_COLOR_GLSL, // Used for GLSL shaders to apply additional color on top of modulate/add
+	PP_LIGHT_FALLOFF_TQ = 20,	// only for NV programs
 	PP_GAMMA_BRIGHTNESS = 21, // DG: for gamma in shader: { r_brightness, r_brightness, r_brightness, 1/r_gamma }
 	// DG: for soft particles from TDM: reciprocal of _currentDepth size.
 	//     Lets us convert a screen position to a texcoord in _currentDepth
@@ -1397,8 +1502,35 @@ typedef enum {
 	//     Particles with additive blend need their RGB channels modifying to blend them out
 	//     Particles with an alpha blend need their alpha channel modifying.
 	PP_PARTICLE_COLCHAN_MASK = 24,
+	// SM: For storing inverse view projection
+	PP_INV_VIEWPROJ_X,
+	PP_INV_VIEWPROJ_Y,
+	PP_INV_VIEWPROJ_Z,
+	PP_INV_VIEWPROJ_W,
+	PP_PREV_VIEWPROJ_X,
+	PP_PREV_VIEWPROJ_Y,
+	PP_PREV_VIEWPROJ_Z,
+	PP_PREV_VIEWPROJ_W
 } programParameter_t;
 
+// GLSL backend functions
+void	R_GLSL_Init( void );
+void	R_GLSL_Shutdown( void );
+void	RB_GLSL_DrawInteractions( void );
+void	RB_GLSL_DrawInteractionsBlend();
+void	R_ReloadGLSLPrograms_f( const idCmdArgs &args );
+bool	R_FindGLSLProgram( const idStr& program );
+void	R_GLSL_SetActiveProgram( const idStr& program );
+void	R_GLSL_DisablePrograms();
+void	R_GLSL_SetVertexAttribs( idDrawVert* verts );
+void	R_GLSL_LoadMatrix(const float* matrix, GLenum matrixMode);
+void	R_GLSL_SetProgramEnv(GLuint index, const idVec4& params);
+void	R_GLSL_SetProgramLocal(GLuint index, const idVec4& params);
+void	R_GLSL_SetCustomPostValue(unsigned int value);
+void	R_GLSL_EnableVertexAttribs(int count);
+void	R_GLSL_DisableVertexAttribs();
+// Second parameter is what you pass to glColor4fv in fixed-function
+void	R_GLSL_SetVertexColorEnv(stageVertexColor_t vertexColor, idVec4 color = idVec4(1.0f, 1.0f, 1.0f, 1.0f));
 
 /*
 ============================================================
@@ -1695,5 +1827,129 @@ idScreenRect R_CalcIntersectionScissor( const idRenderLightLocal * lightDef,
 										const viewDef_t * viewDef );
 
 //=============================================
+//#define __BLENDO_INLINE_CULL__
+#if defined(__BLENDO_INLINE_CULL__)
+/*
+=================
+R_RadiusCullLocalBox
+
+A fast, conservative center-to-corner culling test
+Returns true if the box is outside the given global frustum, (positive sides are out)
+=================
+*/
+ID_INLINE bool R_RadiusCullLocalBox(const idBounds &bounds, const float modelMatrix[16], int numPlanes, const idPlane *planes) {
+	int			i;
+	float		d;
+	idVec3		worldOrigin;
+	float		worldRadius;
+	const idPlane	*frust;
+
+	// transform the surface bounds into world space
+	idVec3	localOrigin = (bounds[0] + bounds[1]) * 0.5;
+
+	R_LocalPointToGlobal(modelMatrix, localOrigin, worldOrigin);
+
+	worldRadius = (bounds[0] - localOrigin).Length();	// FIXME: won't be correct for scaled objects
+
+	for (i = 0; i < numPlanes; i++) {
+		frust = planes + i;
+		d = frust->Distance(worldOrigin);
+		if (d > worldRadius) {
+			return true;	// culled
+		}
+	}
+
+	return false;		// no culled
+}
+
+/*
+=================
+R_CornerCullLocalBox
+
+Tests all corners against the frustum.
+Can still generate a few false positives when the box is outside a corner.
+Returns true if the box is outside the given global frustum, (positive sides are out)
+=================
+*/
+ID_INLINE bool R_CornerCullLocalBox(const idBounds &bounds, const float modelMatrix[16], int numPlanes, const idPlane *planes) {
+	int			i, j;
+	idVec3		transformed[8];
+	float		dists[8];
+	idVec3		v;
+	const idPlane *frust;
+
+	// transform into world space
+	for (i = 0; i < 8; i++) {
+		v[0] = bounds[i & 1][0];
+		v[1] = bounds[(i >> 1) & 1][1];
+		v[2] = bounds[(i >> 2) & 1][2];
+
+		R_LocalPointToGlobal(modelMatrix, v, transformed[i]);
+	}
+
+	// check against frustum planes
+	for (i = 0; i < numPlanes; i++) {
+		frust = planes + i;
+		for (j = 0; j < 8; j++) {
+			dists[j] = frust->Distance(transformed[j]);
+			if (dists[j] < 0) {
+				break;
+			}
+		}
+		if (j == 8) {
+			// all points were behind one of the planes
+			tr.pc.c_box_cull_out++;
+			return true;
+		}
+	}
+
+	tr.pc.c_box_cull_in++;
+
+	return false;		// not culled
+}
+
+//bool R_CullLocalBox(const idBounds &bounds, const float modelMatrix[16], int numPlanes, const idPlane *planes, bool noFrustumCull = false);
+/*
+=================
+R_CullLocalBox
+
+Performs quick test before expensive test
+Returns true if the box is outside the given global frustum, (positive sides are out)
+=================
+*/
+
+ID_INLINE bool R_CullLocalBox(const idBounds &bounds, const float modelMatrix[16], int numPlanes, const idPlane *planes, bool noFrustumCull = false) {
+	if (r_useCulling.GetInteger() == 0) {
+		return false;
+	}
+
+	if (R_RadiusCullLocalBox(bounds, modelMatrix, numPlanes, planes)) {
+		return true;
+	}
+
+	// we can disable box culling for experimental timing purposes
+	if (r_useCulling.GetInteger() < 2) {
+		return false;
+	}
+
+	return R_CornerCullLocalBox(bounds, modelMatrix, numPlanes, planes);
+}
+#endif
+
+// blendo eric: debug group helpers
+
+#ifdef _DEBUG
+void R_DebugGroupPop();
+void R_DebugGroupPush(idStr name);
+void R_DebugGroupNext(idStr name); // pop then push
+#else
+#define R_DebugGroupPop() {}
+#define R_DebugGroupPush(x) {}
+#define R_DebugGroupNext(x) {}
+#endif
+extern idCVar r_debugGLGroupLabels;
+
+// SM: For debug contexts
+extern idCVar r_debugGLContext;
 
 #endif /* !__TR_LOCAL_H__ */

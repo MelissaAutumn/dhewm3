@@ -369,7 +369,7 @@ used to parse an image program from a text stream.
 ===================
 */
 static bool R_ParseImageProgram_r( idLexer &src, byte **pic, int *width, int *height,
-								  ID_TIME_T *timestamps, textureDepth_t *depth ) {
+								  ID_TIME_T *timestamps, textureDepth_t *depth, bool makePowerOf2 = true ) {
 	idToken		token;
 	float		scale;
 	ID_TIME_T		timestamp;
@@ -403,7 +403,7 @@ static bool R_ParseImageProgram_r( idLexer &src, byte **pic, int *width, int *he
 	}
 
 	if ( !token.Icmp( "addnormals" ) ) {
-		byte	*pic2 = NULL;
+		byte	*pic2 = nullptr;
 		int		width2, height2;
 
 		MatchAndAppendToken( src, "(" );
@@ -454,7 +454,7 @@ static bool R_ParseImageProgram_r( idLexer &src, byte **pic, int *width, int *he
 	}
 
 	if ( !token.Icmp( "add" ) ) {
-		byte	*pic2 = NULL;
+		byte	*pic2 = nullptr;
 		int		width2, height2;
 
 		MatchAndAppendToken( src, "(" );
@@ -587,7 +587,7 @@ static bool R_ParseImageProgram_r( idLexer &src, byte **pic, int *width, int *he
 	}
 
 	// load it as an image
-	R_LoadImage( token.c_str(), pic, width, height, &timestamp, true );
+	R_LoadImage( token.c_str(), pic, width, height, &timestamp, makePowerOf2 );
 
 	if ( timestamp == FILE_NOT_FOUND_TIMESTAMP ) {
 		return false;
@@ -630,8 +630,8 @@ void R_LoadImageProgram( const char *name, byte **pic, int *width, int *height, 
 R_ParsePastImageProgram
 ===================
 */
-const char *R_ParsePastImageProgram( idLexer &src ) {
+const char *R_ParsePastImageProgram( idLexer &src, bool makePowerOf2 ) {
 	parseBuffer[0] = 0;
-	R_ParseImageProgram_r( src, NULL, NULL, NULL, NULL, NULL );
+	R_ParseImageProgram_r( src, NULL, NULL, NULL, NULL, NULL, makePowerOf2 );
 	return parseBuffer;
 }

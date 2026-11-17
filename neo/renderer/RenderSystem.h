@@ -46,6 +46,7 @@ If you have questions concerning this license or the applicable additional terms
 // These are constant once the OpenGL subsystem is initialized.
 typedef struct glconfig_s {
 	const char			*renderer_string;
+	const char			*renderer_short_string; // blendo eric: for display in options
 	const char			*vendor_string;
 	const char			*version_string;
 	const char			*extensions_string;
@@ -79,7 +80,8 @@ typedef struct glconfig_s {
 	bool				twoSidedStencilAvailable;
 	bool				textureNonPowerOfTwoAvailable;
 	bool				depthBoundsTestAvailable;
-	bool				glDebugOutputAvailable;
+	bool				khrDebugAvailable; // SM: To help with debugging frame captures
+	bool				GLSLAvailable;
 
 	// GL framebuffer size, see also winWidth and winHeight
 	int					vidWidth, vidHeight;	// passed to R_BeginFrame
@@ -87,8 +89,10 @@ typedef struct glconfig_s {
 	int					displayFrequency;
 
 	bool				isFullscreen;
+	bool				isBorderless;
 
-	bool				allowARB2Path;
+	bool				allowGLSLPath;
+	bool				isBrokenAMDR7200;
 
 	bool				isInitialized;
 
@@ -140,7 +144,6 @@ typedef struct {
 	const idMaterial *	glyph;			// shader with the glyph
 	char				shaderName[32];
 } glyphInfo_t;
-
 typedef struct {
 	glyphInfo_t			glyphs [GLYPHS_PER_FONT];
 	float				glyphScale;
@@ -161,6 +164,9 @@ typedef struct {
 	int					maxWidthLarge;
 	char				name[64];
 } fontInfoEx_t;
+
+const int MICROCHAR_WIDTH = 5; //BC
+const int MICROCHAR_HEIGHT = 8; //BC
 
 const int SMALLCHAR_WIDTH		= 8;
 const int SMALLCHAR_HEIGHT		= 16;
@@ -273,11 +279,26 @@ public:
 	// to use the default tga loading code without having dimmed down areas in many places
 	virtual void			CaptureRenderToFile( const char *fileName, bool fixAlpha = false ) = 0;
 	virtual void			UnCrop() = 0;
+	virtual void			PrepareForPostProcessPass() = 0;
 
 	// the image has to be already loaded ( most straightforward way would be through a FindMaterial )
 	// texture filter / mipmapping / repeat won't be modified by the upload
 	// returns false if the image wasn't found
 	virtual bool			UploadImage( const char *imageName, const byte *data, int width, int height ) = 0;
+
+	virtual int				GetImageBytes(idImage* img, byte** bytes) = 0;
+
+	// SW: For the first few frames of game time, it seems that the primary view hasn't yet been initialized.
+	// This causes problems for some features that jump the gun and try to use it to (e.g) translate worldspace to screenspace coordinates.
+	// This method lets us safely check if the view is non-null and let the calling functions make up their mind about how to handle it.
+	virtual bool			PrimaryViewExists() = 0;
+
+	// SM: Function to tell us whether to use Blendo ambience or not
+	virtual bool			UseBlendoAmbience() const = 0;
+	virtual void			SetUseBlendoAmbience( bool setting ) = 0;
+	virtual float			GetBlendoAmbienceScale() const = 0;
+
+	virtual void			UpdateScreenWidth() = 0;
 };
 
 extern idRenderSystem *			renderSystem;

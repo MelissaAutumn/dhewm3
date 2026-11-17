@@ -26,6 +26,7 @@ If you have questions concerning this license or the applicable additional terms
 ===========================================================================
 */
 
+#include "framework/CVarSystem.h"
 #include "sys/platform.h"
 #include "idlib/LangDict.h"
 #include "framework/Licensee.h"
@@ -54,15 +55,15 @@ If you have questions concerning this license or the applicable additional terms
 
 glconfig_t	glConfig;
 
-const char *r_rendererArgs[] = { "best", "arb2", NULL };
+const char *r_rendererArgs[] = { "best", "glsl", NULL };
 
 idCVar r_inhibitFragmentProgram( "r_inhibitFragmentProgram", "0", CVAR_RENDERER | CVAR_BOOL, "ignore the fragment program extension" );
 idCVar r_useLightPortalFlow( "r_useLightPortalFlow", "1", CVAR_RENDERER | CVAR_BOOL, "use a more precise area reference determination" );
 idCVar r_multiSamples( "r_multiSamples", "0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_INTEGER, "number of antialiasing samples" );
 idCVar r_mode( "r_mode", "5", CVAR_ARCHIVE | CVAR_RENDERER | CVAR_INTEGER, "video mode number" );
 idCVar r_displayRefresh( "r_displayRefresh", "0", CVAR_RENDERER | CVAR_INTEGER | CVAR_NOCHEAT, "optional display refresh rate option for vid mode", 0.0f, 200.0f );
-idCVar r_fullscreen( "r_fullscreen", "0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL, "0 = windowed, 1 = full screen" );
-idCVar r_fullscreenDesktop( "r_fullscreenDesktop", "0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL, "0: 'real' fullscreen mode 1: keep resolution 'desktop' fullscreen mode" );
+idCVar r_fullscreen( "r_fullscreen", "0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_INTEGER, "0 = windowed, 1 = full screen, 2 = borderless" );
+idCVar r_fullscreenDesktop( "r_fullscreenDesktop", "0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL, "[deprecated] 0: 'real' fullscreen mode 1: keep resolution 'desktop' fullscreen mode" );
 idCVar r_customWidth( "r_customWidth", "720", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_INTEGER, "custom screen width. set r_mode to -1 to activate" );
 idCVar r_customHeight( "r_customHeight", "486", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_INTEGER, "custom screen height. set r_mode to -1 to activate" );
 idCVar r_singleTriangle( "r_singleTriangle", "0", CVAR_RENDERER | CVAR_BOOL, "only draw a single triangle per primitive" );
@@ -96,7 +97,7 @@ idCVar r_gamma( "r_gamma", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_FLOAT, "chan
 idCVar r_brightness( "r_brightness", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_FLOAT, "changes gamma tables", 0.5f, 2.0f );
 idCVar r_gammaInShader( "r_gammaInShader", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL, "Set gamma and brightness in shaders instead using hardware gamma" );
 
-idCVar r_renderer( "r_renderer", "best", CVAR_RENDERER | CVAR_ARCHIVE, "hardware specific renderer path to use", r_rendererArgs, idCmdSystem::ArgCompletion_String<r_rendererArgs> );
+idCVar r_renderer( "r_renderer", "best", CVAR_RENDERER | CVAR_ARCHIVE, "Hardware-specific renderer path to use. Values: best, glsl", r_rendererArgs, idCmdSystem::ArgCompletion_String<r_rendererArgs> );
 
 idCVar r_jitter( "r_jitter", "0", CVAR_RENDERER | CVAR_BOOL, "randomly subpixel jitter the projection matrix" );
 
@@ -235,6 +236,16 @@ idCVar r_materialOverride( "r_materialOverride", "", CVAR_RENDERER, "overrides a
 
 idCVar r_debugRenderToTexture( "r_debugRenderToTexture", "0", CVAR_RENDERER | CVAR_INTEGER, "" );
 
+// blendo eric: Custom cvars for new ambience system
+idCVar r_useBlendoAmbience("r_useBlendoAmbience", "1", CVAR_RENDERER | CVAR_INTEGER, "render a dim additive pass for all diffuse shaders, making dark areas more readable. 0 = off, 1 = on", 0, 1);
+idCVar r_blendoAmbienceScale("r_blendoAmbienceScale", "0.15", CVAR_RENDERER | CVAR_FLOAT, "multiplier to scale brightness of the additive pass that is applied to diffuse shaders. Ranges from 0.0 to 1.0", 0.0f, 1.0f);
+
+idCVar r_blendoTriangleCount("r_blendoTriangleCount", "-1", CVAR_RENDERER | CVAR_INTEGER, "only draw a x triangle per primitive, -1 off"); // blendo eric: perf testing
+//idCVar r_stencilReverse("r_stencilReverse", "1", CVAR_RENDERER | CVAR_BOOL, "use carmack's reverse"); // blendo eric: re-add carmack's reverse
+//idCVar r_useStencilOpSeparate( "r_useStencilOpSeparate", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL, "Use glStencilOpSeparate() (if available) when rendering shadows" );
+
+
+
 // DG: let users disable the "scale menus to 4:3" hack
 idCVar r_scaleMenusTo43( "r_scaleMenusTo43", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL, "Scale menus, fullscreen videos and PDA to 4:3 aspect ratio" );
 // DG: the fscking patent has finally expired
@@ -253,6 +264,8 @@ idCVar r_enableDepthCapture( "r_enableDepthCapture", "-1", CVAR_RENDERER | CVAR_
 idCVar r_useSoftParticles( "r_useSoftParticles", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL, "Soften particle transitions when player walks through them or they cross solid geometry. Needs r_enableDepthCapture. Can slow down rendering!" ); // #3878
 
 idCVar r_glDebugContext( "r_glDebugContext", "0", CVAR_RENDERER | CVAR_BOOL, "Enable OpenGL Debug context - requires vid_restart, needs SDL2" );
+idCVar r_scaleMenusTo169( "r_scaleMenusTo169", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL, "Scale menus, fullscreen videos and PDA to 16:9 aspect ratio even when widescreen" );
+idCVar r_AMDWorkaround( "r_AMDWorkaround", "0", CVAR_RENDERER | CVAR_BOOL | CVAR_INIT, "Whether to force enable to AMD workaround" );
 
 // define qgl functions
 #define QGLPROC(name, rettype, args) rettype (APIENTRYP q##name) args;
@@ -270,22 +283,29 @@ void (APIENTRY * qglColorTableEXT)( int, int, int, int, int, const void * );
 // EXT_stencil_two_side
 PFNGLACTIVESTENCILFACEEXTPROC			qglActiveStencilFaceEXT;
 
+
 // ARB_texture_compression
 PFNGLCOMPRESSEDTEXIMAGE2DARBPROC		qglCompressedTexImage2DARB;
 PFNGLGETCOMPRESSEDTEXIMAGEARBPROC		qglGetCompressedTexImageARB;
 
+// SM: Swap out ARB_vertex_buffer_object for GL_EXT_PROTOTYPES aka Core 2.0+ version
+// and only the functions we're actively using
 // ARB_vertex_buffer_object
-PFNGLBINDBUFFERARBPROC					qglBindBufferARB;
-PFNGLDELETEBUFFERSARBPROC				qglDeleteBuffersARB;
-PFNGLGENBUFFERSARBPROC					qglGenBuffersARB;
-PFNGLISBUFFERARBPROC					qglIsBufferARB;
-PFNGLBUFFERDATAARBPROC					qglBufferDataARB;
-PFNGLBUFFERSUBDATAARBPROC				qglBufferSubDataARB;
-PFNGLGETBUFFERSUBDATAARBPROC			qglGetBufferSubDataARB;
-PFNGLMAPBUFFERARBPROC					qglMapBufferARB;
-PFNGLUNMAPBUFFERARBPROC					qglUnmapBufferARB;
-PFNGLGETBUFFERPARAMETERIVARBPROC		qglGetBufferParameterivARB;
-PFNGLGETBUFFERPOINTERVARBPROC			qglGetBufferPointervARB;
+// PFNGLBINDBUFFERARBPROC					qglBindBufferARB;
+// PFNGLDELETEBUFFERSARBPROC				qglDeleteBuffersARB;
+// PFNGLGENBUFFERSARBPROC					qglGenBuffersARB;
+// PFNGLISBUFFERARBPROC					qglIsBufferARB;
+// PFNGLBUFFERDATAARBPROC					qglBufferDataARB;
+// PFNGLBUFFERSUBDATAARBPROC				qglBufferSubDataARB;
+// PFNGLGETBUFFERSUBDATAARBPROC			qglGetBufferSubDataARB;
+// PFNGLMAPBUFFERARBPROC					qglMapBufferARB;
+// PFNGLUNMAPBUFFERARBPROC					qglUnmapBufferARB;
+// PFNGLGETBUFFERPARAMETERIVARBPROC		qglGetBufferParameterivARB;
+// PFNGLGETBUFFERPOINTERVARBPROC			qglGetBufferPointervARB;
+PFNGLBINDBUFFERPROC						qglBindBuffer;
+PFNGLGENBUFFERSPROC						qglGenBuffers;
+PFNGLBUFFERDATAPROC						qglBufferData;
+PFNGLBUFFERSUBDATAPROC					qglBufferSubData;
 
 // ARB_vertex_program / ARB_fragment_program
 PFNGLVERTEXATTRIBPOINTERARBPROC			qglVertexAttribPointerARB;
@@ -296,6 +316,7 @@ PFNGLBINDPROGRAMARBPROC					qglBindProgramARB;
 PFNGLGENPROGRAMSARBPROC					qglGenProgramsARB;
 PFNGLPROGRAMENVPARAMETER4FVARBPROC		qglProgramEnvParameter4fvARB;
 PFNGLPROGRAMLOCALPARAMETER4FVARBPROC	qglProgramLocalParameter4fvARB;
+PFNGLGETPROGRAMIVARBPROC				qglGetProgramivARB;
 
 // GL_EXT_depth_bounds_test
 PFNGLDEPTHBOUNDSEXTPROC                 qglDepthBoundsEXT;
@@ -303,8 +324,54 @@ PFNGLDEPTHBOUNDSEXTPROC                 qglDepthBoundsEXT;
 // DG: couldn't find any extension for this, it's supported in GL2.0 and newer, incl OpenGL ES2.0
 PFNGLSTENCILOPSEPARATEPROC qglStencilOpSeparate;
 
+// SM: Debug extensions to help with frame captures
+PFNGLOBJECTLABELPROC					qglObjectLabel;
+PFNGLPUSHDEBUGGROUPPROC					qglPushDebugGroup;
+PFNGLPOPDEBUGGROUPPROC					qglPopDebugGroup;
 // GL_ARB_debug_output
-PFNGLDEBUGMESSAGECALLBACKARBPROC        qglDebugMessageCallbackARB;
+PFNGLDEBUGMESSAGECALLBACKARBPROC        qglDebugMessageCallback;
+
+// blendo eric: frame/render buffers
+PFNGLGENFRAMEBUFFERSPROC				qglGenFramebuffers;
+PFNGLDELETEFRAMEBUFFERSPROC				qglDeleteFramebuffers;
+PFNGLBINDFRAMEBUFFERPROC				qglBindFramebuffer;
+PFNGLFRAMEBUFFERTEXTURE2DPROC			qglFramebufferTexture2D;
+PFNGLCHECKFRAMEBUFFERSTATUSPROC			qglCheckFramebufferStatus;
+PFNGLBLITFRAMEBUFFERPROC				qglBlitFramebuffer;
+PFNGLDRAWBUFFERSPROC					qglDrawBuffers;
+PFNGLCLEARBUFFERUIVPROC					qglClearBufferuiv;
+PFNGLCLEARBUFFERFVPROC					qglClearBufferfv;
+
+// SM: GLSL functions
+PFNGLCREATEPROGRAMPROC					qglCreateProgram;
+PFNGLATTACHSHADERPROC					qglAttachShader;
+PFNGLLINKPROGRAMPROC					qglLinkProgram;
+PFNGLDELETEPROGRAMPROC					qglDeleteProgram;
+PFNGLDELETESHADERPROC					qglDeleteShader;
+PFNGLUSEPROGRAMPROC						qglUseProgram;
+PFNGLGETUNIFORMLOCATIONPROC				qglGetUniformLocation;
+PFNGLUNIFORMMATRIX4FVPROC				qglUniformMatrix4fv;
+PFNGLUNIFORM4FVPROC						qglUniform4fv;
+PFNGLUNIFORM3FVPROC						qglUniform3fv;
+PFNGLUNIFORM2FVPROC						qglUniform2fv;
+PFNGLUNIFORM1FPROC						qglUniform1f;
+PFNGLUNIFORM1IPROC						qglUniform1i;
+PFNGLUNIFORM1UIPROC						qglUniform1ui;
+PFNGLCREATESHADERPROC					qglCreateShader;
+PFNGLSHADERSOURCEPROC					qglShaderSource;
+PFNGLCOMPILESHADERPROC					qglCompileShader;
+PFNGLGETSHADERIVPROC					qglGetShaderiv;
+PFNGLGETSHADERINFOLOGPROC				qglGetShaderInfoLog;
+PFNGLGETPROGRAMIVPROC					qglGetProgramiv;
+PFNGLGETPROGRAMINFOLOGPROC				qglGetProgramInfoLog;
+PFNGLGETUNIFORMBLOCKINDEXPROC			qglGetUniformBlockIndex;
+PFNGLUNIFORMBLOCKBINDINGPROC			qglUniformBlockBinding;
+PFNGLBINDBUFFERRANGEPROC				qglBindBufferRange;
+PFNGLENABLEVERTEXATTRIBARRAYPROC		qglEnableVertexAttribArray;
+PFNGLDISABLEVERTEXATTRIBARRAYPROC		qglDisableVertexAttribArray;
+PFNGLVERTEXATTRIBPOINTERPROC			qglVertexAttribPointer;
+PFNGLACTIVETEXTUREPROC					qglActiveTexture;
+PFNGLBINDBUFFERBASEPROC					qglBindBufferBase;
 
 // eez: This is a slight hack for letting us select the desired screenshot format in other functions
 //  This is a hack to avoid adding another function parameter to idRenderSystem::TakeScreenshot(),
@@ -326,6 +393,9 @@ static void APIENTRY
 DebugCallback( GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
               const GLchar *message, const void *userParam )
 {
+	if (type != GL_DEBUG_TYPE_ERROR)
+		return;
+
 	const char* sourceStr = "Source: Unknown";
 	const char* typeStr = "Type: Unknown";
 	const char* severityStr = "Severity: Unknown";
@@ -500,23 +570,16 @@ static void R_CheckPortableExtensions( void ) {
 		qglStencilOpSeparate = (PFNGLSTENCILOPSEPARATEPROC)GLimp_ExtensionPointer( "glStencilOpSeparateATI" );
 	} else {
 		common->Printf( "X..don't have glStencilOpSeparateATI() or (GL2.0+) glStencilOpSeparate()\n" );
-		qglStencilOpSeparate = NULL;
+		qglStencilOpSeparate = nullptr;
 	}
 
 	// ARB_vertex_buffer_object
 	glConfig.ARBVertexBufferObjectAvailable = R_CheckExtension( "GL_ARB_vertex_buffer_object" );
 	if(glConfig.ARBVertexBufferObjectAvailable) {
-		qglBindBufferARB = (PFNGLBINDBUFFERARBPROC)GLimp_ExtensionPointer( "glBindBufferARB");
-		qglDeleteBuffersARB = (PFNGLDELETEBUFFERSARBPROC)GLimp_ExtensionPointer( "glDeleteBuffersARB");
-		qglGenBuffersARB = (PFNGLGENBUFFERSARBPROC)GLimp_ExtensionPointer( "glGenBuffersARB");
-		qglIsBufferARB = (PFNGLISBUFFERARBPROC)GLimp_ExtensionPointer( "glIsBufferARB");
-		qglBufferDataARB = (PFNGLBUFFERDATAARBPROC)GLimp_ExtensionPointer( "glBufferDataARB");
-		qglBufferSubDataARB = (PFNGLBUFFERSUBDATAARBPROC)GLimp_ExtensionPointer( "glBufferSubDataARB");
-		qglGetBufferSubDataARB = (PFNGLGETBUFFERSUBDATAARBPROC)GLimp_ExtensionPointer( "glGetBufferSubDataARB");
-		qglMapBufferARB = (PFNGLMAPBUFFERARBPROC)GLimp_ExtensionPointer( "glMapBufferARB");
-		qglUnmapBufferARB = (PFNGLUNMAPBUFFERARBPROC)GLimp_ExtensionPointer( "glUnmapBufferARB");
-		qglGetBufferParameterivARB = (PFNGLGETBUFFERPARAMETERIVARBPROC)GLimp_ExtensionPointer( "glGetBufferParameterivARB");
-		qglGetBufferPointervARB = (PFNGLGETBUFFERPOINTERVARBPROC)GLimp_ExtensionPointer( "glGetBufferPointervARB");
+		qglBindBuffer = (PFNGLBINDBUFFERPROC)GLimp_ExtensionPointer( "glBindBuffer");
+		qglGenBuffers = (PFNGLGENBUFFERSPROC)GLimp_ExtensionPointer( "glGenBuffers");
+		qglBufferData = (PFNGLBUFFERDATAPROC)GLimp_ExtensionPointer( "glBufferData");
+		qglBufferSubData = (PFNGLBUFFERSUBDATAPROC)GLimp_ExtensionPointer( "glBufferSubData");
 	}
 
 	// ARB_vertex_program
@@ -530,6 +593,7 @@ static void R_CheckPortableExtensions( void ) {
 		qglGenProgramsARB = (PFNGLGENPROGRAMSARBPROC)GLimp_ExtensionPointer( "glGenProgramsARB" );
 		qglProgramEnvParameter4fvARB = (PFNGLPROGRAMENVPARAMETER4FVARBPROC)GLimp_ExtensionPointer( "glProgramEnvParameter4fvARB" );
 		qglProgramLocalParameter4fvARB = (PFNGLPROGRAMLOCALPARAMETER4FVARBPROC)GLimp_ExtensionPointer( "glProgramLocalParameter4fvARB" );
+		qglGetProgramivARB = (PFNGLGETPROGRAMIVARBPROC)GLimp_ExtensionPointer("glGetProgramivARB");
 	}
 
 	// ARB_fragment_program
@@ -549,7 +613,7 @@ static void R_CheckPortableExtensions( void ) {
 	// check for minimum set
 	if ( !glConfig.multitextureAvailable || !glConfig.textureEnvCombineAvailable || !glConfig.cubeMapAvailable
 		|| !glConfig.envDot3Available ) {
-			common->Error( "%s", common->GetLanguageDict()->GetString( "#str_06780" ) );
+			common->Warning( "%s", common->GetLanguageDict()->GetString( "#str_06780" ) );
 	}
 
 	// GL_EXT_depth_bounds_test
@@ -558,36 +622,118 @@ static void R_CheckPortableExtensions( void ) {
 		qglDepthBoundsEXT = (PFNGLDEPTHBOUNDSEXTPROC)GLimp_ExtensionPointer( "glDepthBoundsEXT" );
 	}
 
-	// GL_ARB_debug_output
-	glConfig.glDebugOutputAvailable = false;
-	if ( glConfig.haveDebugContext ) {
-		if ( strstr( glConfig.extensions_string, "GL_ARB_debug_output" ) ) {
-			glConfig.glDebugOutputAvailable = true;
-			qglDebugMessageCallbackARB = (PFNGLDEBUGMESSAGECALLBACKARBPROC)GLimp_ExtensionPointer( "glDebugMessageCallbackARB" );
-			if ( r_glDebugContext.GetBool() ) {
-				common->Printf( "...using GL_ARB_debug_output (r_glDebugContext is set)\n" );
-				qglDebugMessageCallbackARB(DebugCallback, NULL);
-				qglEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
-			} else {
-				common->Printf( "...found GL_ARB_debug_output, but not using it (r_glDebugContext is not set)\n" );
-			}
-		} else {
-			common->Printf( "X..GL_ARB_debug_output not found\n" );
-			qglDebugMessageCallbackARB = NULL;
-			if ( r_glDebugContext.GetBool() ) {
-				common->Warning( "r_glDebugContext is set, but can't be used because GL_ARB_debug_output is not supported" );
-			}
+	// SM: GL_KHR_debug
+	glConfig.khrDebugAvailable = R_CheckExtension( "GL_KHR_debug" );
+	if ( glConfig.khrDebugAvailable ) {
+		qglObjectLabel = (PFNGLOBJECTLABELPROC)GLimp_ExtensionPointer( "glObjectLabel" );
+		qglPushDebugGroup = (PFNGLPUSHDEBUGGROUPPROC)GLimp_ExtensionPointer( "glPushDebugGroup" );
+		qglPopDebugGroup = (PFNGLPOPDEBUGGROUPPROC)GLimp_ExtensionPointer( "glPopDebugGroup" );
+
+		qglDebugMessageCallback = (PFNGLDEBUGMESSAGECALLBACKARBPROC)GLimp_ExtensionPointer( "glDebugMessageCallback" );
+
+		// SM: Enable debug output if requested
+#ifdef _DEBUG
+		if ( r_debugGLContext.GetBool() ) {
+			qglEnable( GL_DEBUG_OUTPUT );
+			// logging synchronous means that you can put breakpoints in DebugCallback()
+			// to see what caused the warning/error
+			qglEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+			qglDebugMessageCallback(DebugCallback, NULL);
 		}
-	} else {
-		if ( strstr( glConfig.extensions_string, "GL_ARB_debug_output" ) ) {
-			if ( r_glDebugContext.GetBool() ) {
-				common->Printf( "...found GL_ARB_debug_output, but not using it (no debug context)\n" );
-			} else {
-				common->Printf( "...found GL_ARB_debug_output, but not using it (r_glDebugContext is not set)\n" );
-			}
-		} else {
-			common->Printf( "X..GL_ARB_debug_output not found\n" );
-		}
+#endif
+	}
+
+	// blendo eric: gl frame / render buffers
+	qglGenFramebuffers = (PFNGLGENFRAMEBUFFERSPROC)GLimp_ExtensionPointer("glGenFramebuffers");
+	qglDeleteFramebuffers = (PFNGLDELETEFRAMEBUFFERSPROC)GLimp_ExtensionPointer("glDeleteFramebuffers");
+	qglBindFramebuffer = (PFNGLBINDFRAMEBUFFERPROC)GLimp_ExtensionPointer("glBindFramebuffer");
+	qglFramebufferTexture2D = (PFNGLFRAMEBUFFERTEXTURE2DPROC)GLimp_ExtensionPointer("glFramebufferTexture2D");
+	qglCheckFramebufferStatus = (PFNGLCHECKFRAMEBUFFERSTATUSPROC)GLimp_ExtensionPointer("glCheckFramebufferStatus");
+	qglBlitFramebuffer = (PFNGLBLITFRAMEBUFFERPROC)GLimp_ExtensionPointer("glBlitFramebuffer");
+	qglDrawBuffers = (PFNGLDRAWBUFFERSPROC)GLimp_ExtensionPointer("glDrawBuffers");
+	qglClearBufferuiv = (PFNGLCLEARBUFFERUIVPROC)GLimp_ExtensionPointer("glClearBufferuiv");
+	qglClearBufferfv = (PFNGLCLEARBUFFERFVPROC)GLimp_ExtensionPointer("glClearBufferfv");
+
+	// SM: GLSL functions
+	qglCreateProgram = ( PFNGLCREATEPROGRAMPROC )GLimp_ExtensionPointer( "glCreateProgram" );
+	qglAttachShader = ( PFNGLATTACHSHADERPROC )GLimp_ExtensionPointer( "glAttachShader" );
+	qglLinkProgram = ( PFNGLLINKPROGRAMPROC ) GLimp_ExtensionPointer( "glLinkProgram" );
+	qglDeleteProgram = ( PFNGLDELETEPROGRAMPROC ) GLimp_ExtensionPointer( "glDeleteProgram" );
+	qglDeleteShader = ( PFNGLDELETESHADERPROC ) GLimp_ExtensionPointer( "glDeleteShader" );
+	qglUseProgram = ( PFNGLUSEPROGRAMPROC ) GLimp_ExtensionPointer( "glUseProgram" );
+	qglGetUniformLocation = ( PFNGLGETUNIFORMLOCATIONPROC ) GLimp_ExtensionPointer( "glGetUniformLocation" );
+	qglUniformMatrix4fv = ( PFNGLUNIFORMMATRIX4FVPROC ) GLimp_ExtensionPointer( "glUniformMatrix4fv" );
+	qglUniform4fv = ( PFNGLUNIFORM4FVPROC ) GLimp_ExtensionPointer( "glUniform4fv" );
+
+	qglUniform3fv = ( PFNGLUNIFORM3FVPROC ) GLimp_ExtensionPointer( "glUniform3fv" );
+	qglUniform2fv = ( PFNGLUNIFORM2FVPROC ) GLimp_ExtensionPointer( "glUniform2fv" );
+	qglUniform1f = ( PFNGLUNIFORM1FPROC ) GLimp_ExtensionPointer( "glUniform1f" );
+	qglUniform1i = ( PFNGLUNIFORM1IPROC ) GLimp_ExtensionPointer( "glUniform1i" );
+	qglUniform1ui = ( PFNGLUNIFORM1UIPROC ) GLimp_ExtensionPointer( "glUniform1ui" );
+	qglCreateShader = ( PFNGLCREATESHADERPROC ) GLimp_ExtensionPointer( "glCreateShader" );
+	qglShaderSource = ( PFNGLSHADERSOURCEPROC ) GLimp_ExtensionPointer( "glShaderSource" );
+	qglCompileShader = ( PFNGLCOMPILESHADERPROC ) GLimp_ExtensionPointer( "glCompileShader" );
+	qglGetShaderiv = ( PFNGLGETSHADERIVPROC ) GLimp_ExtensionPointer( "glGetShaderiv" );
+	qglGetShaderInfoLog = ( PFNGLGETSHADERINFOLOGPROC ) GLimp_ExtensionPointer( "glGetShaderInfoLog" );
+	qglGetProgramiv = ( PFNGLGETPROGRAMIVPROC ) GLimp_ExtensionPointer( "glGetProgramiv" );
+	qglGetProgramInfoLog = ( PFNGLGETPROGRAMINFOLOGPROC ) GLimp_ExtensionPointer( "glGetProgramInfoLog" );
+	qglGetUniformBlockIndex = ( PFNGLGETUNIFORMBLOCKINDEXPROC )GLimp_ExtensionPointer("glGetUniformBlockIndex");
+	qglUniformBlockBinding = ( PFNGLUNIFORMBLOCKBINDINGPROC )GLimp_ExtensionPointer("glUniformBlockBinding");
+	qglBindBufferRange = ( PFNGLBINDBUFFERRANGEPROC )GLimp_ExtensionPointer("glBindBufferRange");
+	qglEnableVertexAttribArray = ( PFNGLENABLEVERTEXATTRIBARRAYPROC )GLimp_ExtensionPointer("glEnableVertexAttribArray");
+	qglDisableVertexAttribArray = ( PFNGLDISABLEVERTEXATTRIBARRAYPROC )GLimp_ExtensionPointer("glDisableVertexAttribArray");
+	qglVertexAttribPointer = ( PFNGLVERTEXATTRIBPOINTERPROC )GLimp_ExtensionPointer("glVertexAttribPointer");
+	qglActiveTexture = ( PFNGLACTIVETEXTUREPROC )GLimp_ExtensionPointer("glActiveTexture");
+	qglBindBufferBase = ( PFNGLBINDBUFFERBASEPROC )GLimp_ExtensionPointer("glBindBufferBase");
+
+	glConfig.GLSLAvailable = qglCreateProgram != nullptr;
+	idStr gpuStr = glConfig.renderer_string;
+
+	// SM: Rendering with GL_COLOR_LOGIC_OP enabled on (~2013-2015) R7 and R9 series cards
+	// completely breaks alpha. Pretty sure this is a driver bug, but we have no
+	// real way to fix this. Disabling the logic op means that some overlapping
+	// outlines of different types may artifact, but that's better than a black screen.
+	idStrList amdGPUs;
+	amdGPUs.AddUnique("R7 ");			// Reported by Huwiz
+	amdGPUs.AddUnique("R9 ");			// Reported by Huwiz
+
+	amdGPUs.AddUnique("RX 480");		// Reported on Steam Forums
+	amdGPUs.AddUnique("RX 455");		// https://en.wikipedia.org/wiki/Radeon_400_series
+	amdGPUs.AddUnique("RX 460");
+	amdGPUs.AddUnique("RX 470");
+	amdGPUs.AddUnique("R5 ");
+
+	amdGPUs.AddUnique("HD 78");			// Reported on Steam Forums (there's lots of 78xx)
+	amdGPUs.AddUnique("HD 77");			// https://en.wikipedia.org/wiki/Radeon_HD_7000_series
+	amdGPUs.AddUnique("HD 73");
+	amdGPUs.AddUnique("HD 74");
+	amdGPUs.AddUnique("HD 75");
+	amdGPUs.AddUnique("HD 76");
+	amdGPUs.AddUnique("HD 79");
+	amdGPUs.AddUnique("Pro Vega");
+
+	glConfig.isBrokenAMDR7200 = r_AMDWorkaround.GetBool();
+	for (int i = 0; i < amdGPUs.Num(); i++) {
+		glConfig.isBrokenAMDR7200 = glConfig.isBrokenAMDR7200 || gpuStr.Find(amdGPUs[i]) != -1;
+	}
+
+	if (!R_CheckExtension("GL_ARB_texture_float") || !glConfig.GLSLAvailable || !R_CheckExtension("GL_ARB_shading_language_420pack"))
+	{
+		idStr errorMessage = "This game requires a graphics card that supports DirectX 11_0 feature level or higher.\n";
+		errorMessage += idStr::Format("Your video card is: %s\n\n", glConfig.renderer_string);
+
+		if (!R_CheckExtension("GL_ARB_texture_float"))
+			errorMessage += "- Your video card doesn't support GL_ARB_texture_float\n";
+
+		if (!glConfig.GLSLAvailable)
+			errorMessage += "- Your video card doesn't support GLSL\n";
+
+		if (!R_CheckExtension("GL_ARB_shading_language_420pack"))
+			errorMessage += "- Your video card doesn't support GL_ARB_shading_language_420pack\n";
+
+		errorMessage += "\nExiting now.";
+
+		common->Error(errorMessage.c_str());
 	}
 }
 
@@ -796,8 +942,8 @@ void R_InitOpenGL( void ) {
 
 		parms.width = glConfig.vidWidth;
 		parms.height = glConfig.vidHeight;
-		parms.fullScreen = r_fullscreen.GetBool();
-		parms.fullScreenDesktop = r_fullscreenDesktop.GetBool();
+		parms.fullScreen = r_fullscreen.GetInteger();
+		parms.borderless = r_fullscreenDesktop.GetBool();
 		parms.displayHz = r_displayRefresh.GetInteger();
 		parms.multiSamples = r_multiSamples.GetInteger();
 		parms.stereo = false;
@@ -834,6 +980,22 @@ void R_InitOpenGL( void ) {
 	// get our config strings
 	glConfig.vendor_string = (const char *)qglGetString(GL_VENDOR);
 	glConfig.renderer_string = (const char *)qglGetString(GL_RENDERER);
+
+
+	// blendo eric: create short name for display in options by removing anything after slashes,
+	// eg: nvidia geforce gtx 1660 TI / PCIE2 / BLAH / BLAH
+	if (strstr(glConfig.renderer_string, "/"))
+	{
+		char* shortStr = new char[strlen(glConfig.renderer_string)+1];
+		strcpy(shortStr, glConfig.renderer_string);
+		strtok(shortStr, "/");
+		glConfig.renderer_short_string = shortStr;
+	}
+	else
+	{
+		glConfig.renderer_short_string = glConfig.renderer_string;
+	}
+
 	glConfig.version_string = (const char *)qglGetString(GL_VERSION);
 	glConfig.extensions_string = (const char *)qglGetString(GL_EXTENSIONS);
 
@@ -855,12 +1017,7 @@ void R_InitOpenGL( void ) {
 	// recheck all the extensions (FIXME: this might be dangerous)
 	R_CheckPortableExtensions();
 
-	// parse our vertex and fragment programs, possibly disably support for
-	// one of the paths if there was an error
-	R_ARB2_Init();
-
-	cmdSystem->AddCommand( "reloadARBprograms", R_ReloadARBPrograms_f, CMD_FL_RENDERER, "reloads ARB programs" );
-	R_ReloadARBPrograms_f( idCmdArgs() );
+	R_GLSL_Init();
 
 	// allocate the vertex array range or vertex objects
 	vertexCache.Init();
@@ -886,7 +1043,7 @@ void R_InitOpenGL( void ) {
 	if ( !glCheck && win32.osversion.dwMajorVersion == 6 ) {
 		glCheck = true;
 		if ( !idStr::Icmp( glConfig.vendor_string, "Microsoft" ) && idStr::FindText( glConfig.renderer_string, "OpenGL-D3D" ) != -1 ) {
-			if ( cvarSystem->GetCVarBool( "r_fullscreen" ) ) {
+			if ( cvarSystem->GetCVarInteger( "r_fullscreen" ) == 1 ) {
 				cmdSystem->BufferCommandText( CMD_EXEC_NOW, "vid_restart partial windowed\n" );
 				Sys_GrabMouseCursor( false );
 			}
@@ -896,7 +1053,7 @@ void R_InitOpenGL( void ) {
 				cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "quit\n" );
 				cmdSystem->ExecuteCommandBuffer();
 			}
-			if ( cvarSystem->GetCVarBool( "r_fullscreen" ) ) {
+			if ( cvarSystem->GetCVarInteger( "r_fullscreen" ) == 1) {
 				cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "vid_restart\n" );
 			}
 		}
@@ -964,6 +1121,10 @@ static void R_ReloadSurface_f( const idCmdArgs &args ) {
 	// start far enough away that we don't hit the player model
 	start = tr.primaryView->renderView.vieworg + tr.primaryView->renderView.viewaxis[0] * 16;
 	end = start + tr.primaryView->renderView.viewaxis[0] * 1000.0f;
+
+	if (tr.primaryWorld == NULL) //BC
+		return;
+
 	if ( !tr.primaryWorld->Trace( mt, start, end, 0.0f, false ) ) {
 		return;
 	}
@@ -1468,7 +1629,7 @@ void idRenderSystemLocal::TakeScreenshot( int width, int height, const char *fil
 		memcpy(line1, line2, lineSize);
 		memcpy(line2, swapBuffer, lineSize);
 	}
-	
+
 	idFile* f;
 	if (strstr(fileName, "viewnote")) {
 		f = fileSystem->OpenFileWrite( fileName, "fs_cdpath" );
@@ -1559,7 +1720,7 @@ void R_ScreenshotFilename( int &lastNumber, const char *base, idStr &fileName ) 
 				sprintf(fileName, "%s%i%i%i%i%i.jpg", base, a, b, c, d, e);
 				break;
 		}
-		
+
 		if ( lastNumber == 99999 ) {
 			break;
 		}
@@ -2016,11 +2177,11 @@ static void GfxInfo_f( const idCmdArgs &args ) {
 	{
 		"windowed",
 		"fullscreen"
+		"fsborderless"
 	};
 
-	const char* fsmode = fsstrings[r_fullscreen.GetBool()];
-	if ( r_fullscreen.GetBool() && r_fullscreenDesktop.GetBool() )
-		fsmode = "desktop-fullscreen";
+	const char* fsmode = fsstrings[r_fullscreen.GetInteger()];
+
 
 	common->Printf( "\nGL_VENDOR: %s\n", glConfig.vendor_string );
 	common->Printf( "GL_RENDERER: %s\n", glConfig.renderer_string );
@@ -2031,7 +2192,7 @@ static void GfxInfo_f( const idCmdArgs &args ) {
 	common->Printf( "GL_MAX_TEXTURE_COORDS_ARB: %d\n", glConfig.maxTextureCoords );
 	common->Printf( "GL_MAX_TEXTURE_IMAGE_UNITS_ARB: %d\n", glConfig.maxTextureImageUnits );
 	common->Printf( "\nPIXELFORMAT: color(%d-bits) Z(%d-bit) stencil(%d-bits)\n", glConfig.colorBits, glConfig.depthBits, glConfig.stencilBits );
-	common->Printf( "MODE: %d, %d x %d %s hz:", r_mode.GetInteger(), glConfig.vidWidth, glConfig.vidHeight, fsmode );
+	common->Printf( "MODE: %d, %d x %d %s hz:", r_mode.GetInteger(), glConfig.vidWidth, glConfig.vidHeight, fsstrings[r_fullscreen.GetInteger()] );
 
 	if ( glConfig.displayFrequency ) {
 		common->Printf( "%d\n", glConfig.displayFrequency );
@@ -2042,10 +2203,10 @@ static void GfxInfo_f( const idCmdArgs &args ) {
 
 	const char *active[2] = { "", " (ACTIVE)" };
 
-	if ( glConfig.allowARB2Path ) {
-		common->Printf( "ARB2 path ENABLED%s\n", active[tr.backEndRenderer == BE_ARB2] );
+	if ( glConfig.allowGLSLPath ) {
+		common->Printf( "GLSL path ENABLED%s\n", active[tr.backEndRenderer == BE_GLSL] );
 	} else {
-		common->Printf( "ARB2 path disabled\n" );
+		common->Printf( "GLSL path disabled\n" );
 	}
 
 	if ( r_finish.GetBool() ) {
@@ -2117,7 +2278,7 @@ void R_VidRestart_f( const idCmdArgs &args ) {
 			parms.height = wantedHeight;
 
 			parms.fullScreen = ( forceWindow ) ? false : r_fullscreen.GetBool();
-			parms.fullScreenDesktop = r_fullscreenDesktop.GetBool();
+			parms.borderless = r_fullscreenDesktop.GetBool();
 			parms.displayHz = r_displayRefresh.GetInteger();
 			// "vid_restart partial windowed" is used in case of errors to return to windowed mode
 			// before things explode more. in that case just keep whatever MSAA setting is active
@@ -2155,24 +2316,51 @@ void R_VidRestart_f( const idCmdArgs &args ) {
 
 	// sound and input are tied to the window we are about to destroy
 
-	// free all of our texture numbers
-	soundSystem->ShutdownHW();
-	Sys_ShutdownInput();
-	globalImages->PurgeAllImages();
-	// free the context and close the window
-	GLimp_Shutdown();
-	glConfig.isInitialized = false;
+	GLimp_ClearFrameBuffers(); // blendo eric: deletes old frame buffer sizes
 
-	// create the new context and vertex cache
-	bool latch = cvarSystem->GetCVarBool( "r_fullscreen" );
-	if ( forceWindow ) {
-		cvarSystem->SetCVarBool( "r_fullscreen", false );
+	if ( full ) {
+		// free all of our texture numbers
+		soundSystem->ShutdownHW();
+		Sys_ShutdownInput();
+		globalImages->PurgeAllImages();
+		// free the context and close the window
+		GLimp_Shutdown();
+		glConfig.isInitialized = false;
+
+		// create the new context and vertex cache
+		bool latch = cvarSystem->GetCVarBool( "r_fullscreen" ) == 1;
+		if ( forceWindow ) {
+			cvarSystem->SetCVarBool( "r_fullscreen", false );
+		}
+		R_InitOpenGL();
+		cvarSystem->SetCVarBool( "r_fullscreen", latch );
+
+		// regenerate all images
+		globalImages->ReloadAllImages();
+	} else {
+	#if 0
+		glimpParms_t	parms;
+		if (r_mode.GetInteger() >= 0 && r_mode.GetInteger() < vidModesToShow.Num())
+		{
+			r_resolution.SetString(vidModesToShow[r_mode.GetInteger()]);
+		}
+		R_ValidateResolutionString(0);
+		//R_GetModeInfo(&glConfig.vidWidth, &glConfig.vidHeight, r_mode.GetInteger());
+		parms.width = glConfig.vidWidth;
+		parms.height = glConfig.vidHeight;
+		parms.fullScreen = (forceWindow) ? false : r_fullscreen.GetInteger() == 1;
+		parms.borderless = (forceWindow) ? false : r_fullscreen.GetInteger() == 2;
+		parms.displayHz = r_displayRefresh.GetInteger();
+		parms.multiSamples = r_multiSamples.GetInteger();
+		parms.stereo = false;
+		GLimp_SetScreenParms( parms );
+		#endif
+		// SM: Need to recreate current render image when changing resolution
+		globalImages->currentRenderImage->PurgeImage();
+		globalImages->currentRenderImage->Reload(true, true);
+		renderSystem->UpdateScreenWidth();
+		renderSystem->CaptureRenderToImage("_currentRender");
 	}
-	R_InitOpenGL();
-	cvarSystem->SetCVarBool( "r_fullscreen", latch );
-
-	// regenerate all images
-	globalImages->ReloadAllImages();
 
 	// make sure the regeneration doesn't use anything no longer valid
 	tr.viewCount++;
@@ -2342,7 +2530,10 @@ void idRenderSystemLocal::Clear( void ) {
 	guiModel = NULL;
 	demoGuiModel = NULL;
 	takingScreenshot = false;
-	allowNoSpecular = false;
+	useBlendoAmbience = true;
+	portalSkyEnabled = false;
+	portalSkyOrigin = vec3_zero;
+	portalSkyViewShiftScale = vec2_zero;
 }
 
 /*
@@ -2402,6 +2593,9 @@ void idRenderSystemLocal::Shutdown( void ) {
 	common->SetRefreshOnPrint( false ); // without a renderer there's nothing to refresh
 
 	R_DoneFreeType( );
+
+	// SM reset the fonts when we shutdown so reloadEngine doesn't crash
+	//ResetFonts();
 
 	if ( glConfig.isInitialized ) {
 		globalImages->PurgeAllImages();
@@ -2498,6 +2692,8 @@ idRenderSystemLocal::ShutdownOpenGL
 ========================
 */
 void idRenderSystemLocal::ShutdownOpenGL( void ) {
+	GLimp_ClearFrameBuffers();
+	R_GLSL_Shutdown();
 
 	R_ShutdownFrameData();
 
@@ -2534,6 +2730,15 @@ bool idRenderSystemLocal::IsFullScreen( void ) const {
 
 /*
 ========================
+idRenderSystemLocal::IsBorderless
+========================
+*/
+bool idRenderSystemLocal::IsBorderless(void) const {
+	return glConfig.isBorderless;
+}
+
+/*
+========================
 idRenderSystemLocal::GetScreenWidth
 ========================
 */
@@ -2548,4 +2753,27 @@ idRenderSystemLocal::GetScreenHeight
 */
 int idRenderSystemLocal::GetScreenHeight( void ) const {
 	return glConfig.vidHeight;
+}
+
+bool idRenderSystemLocal::UseBlendoAmbience() const {
+	return r_useBlendoAmbience.GetBool();
+}
+
+
+float idRenderSystemLocal::GetBlendoAmbienceScale() const
+{
+	return useBlendoAmbience ? r_blendoAmbienceScale.GetFloat() : 0.0f;
+}
+
+/*
+// blendo eric: gets set in playerview, used in subviews
+=====================
+idRenderWorldLocal::PortalSkyViewParams
+=====================
+*/
+void idRenderWorldLocal::SetPortalSkyParams(bool enabled, idVec3 orig, idVec2 shiftScale)
+{
+	tr.portalSkyEnabled = enabled;
+	tr.portalSkyOrigin = orig;
+	tr.portalSkyViewShiftScale = shiftScale;
 }

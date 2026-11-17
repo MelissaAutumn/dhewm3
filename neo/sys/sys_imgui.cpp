@@ -543,7 +543,7 @@ void EndFrame()
 	GLint curArrayBuffer = 0;
 	if ( glConfig.ARBVertexBufferObjectAvailable ) {
 		qglGetIntegerv( GL_ARRAY_BUFFER_BINDING_ARB, &curArrayBuffer );
-		qglBindBufferARB( GL_ARRAY_BUFFER_ARB, 0 );
+		qglBindBuffer( GL_ARRAY_BUFFER_ARB, 0 );
 	}
 
 	// disable all texture units, ImGui_ImplOpenGL2_RenderDrawData() will enable texture 0
@@ -562,7 +562,7 @@ void EndFrame()
 	ImGui_ImplOpenGL2_RenderDrawData( ImGui::GetDrawData() );
 
 	if ( curArrayBuffer != 0 ) {
-		qglBindBufferARB( GL_ARRAY_BUFFER_ARB, curArrayBuffer );
+		qglBindBuffer( GL_ARRAY_BUFFER_ARB, curArrayBuffer );
 	}
 
 	// reset this at the end of each frame, will be set again by ProcessEvent()

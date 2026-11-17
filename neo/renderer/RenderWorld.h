@@ -34,6 +34,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "idlib/bv/Frustum.h"
 #include "framework/DeclParticle.h"
 #include "renderer/Material.h"
+#include "renderer/trackedInteraction.h"
 
 class idDemoFile;
 class idRenderModel;
@@ -78,6 +79,7 @@ const int SHADERPARM_SPRITE_WIDTH		= 8;
 const int SHADERPARM_SPRITE_HEIGHT		= 9;
 
 const int SHADERPARM_PARTICLE_STOPTIME = 8;	// don't spawn any more particles after this time
+const int SHADERPARM_PARTICLE_GRAVITYSCALE = 9; // SM: Apply a scale to gravity
 
 // guis
 const int MAX_RENDERENTITY_GUI		= 3;
@@ -87,7 +89,7 @@ typedef bool(*deferredEntityCallback_t)( renderEntity_s *, const renderView_s * 
 
 
 typedef struct renderEntity_s {
-	idRenderModel *			hModel;				// this can only be null if callback is set
+	idRenderModel *			hModel = nullptr;				// this can only be null if callback is set
 
 	int						entityNum;
 	int						bodyId;
@@ -104,7 +106,7 @@ typedef struct renderEntity_s {
 	idBounds				bounds;					// only needs to be set for deferred models and md5s
 	deferredEntityCallback_t	callback;
 
-	void *					callbackData;			// used for whatever the callback wants
+	void *					callbackData = nullptr;			// used for whatever the callback wants
 
 	// player bodies and possibly player shadows should be suppressed in views from
 	// that player's eyes, but will show up in mirrors and other subviews
@@ -129,19 +131,21 @@ typedef struct renderEntity_s {
 	idMat3					axis;
 
 	// texturing
-	const idMaterial *		customShader;			// if non-0, all surfaces will use this
-	const idMaterial *		referenceShader;		// used so flares can reference the proper light shader
-	const idDeclSkin *		customSkin;				// 0 for no remappings
-	class idSoundEmitter *	referenceSound;			// for shader sound tables, allowing effects to vary with sounds
-	float					shaderParms[ MAX_ENTITY_SHADER_PARMS ];	// can be used in any way by shader or model generation
+	const idMaterial *		customShader = nullptr; // if non-0, all surfaces will use this
+	const idMaterial *		referenceShader = nullptr; // used so flares can reference the proper light shader
+	const idDeclSkin *		customSkin = nullptr; // 0 for no remappings'
+	const idDeclSkin *		overrideSkinInSubview = nullptr; // SW: Should let us draw arms in mirrors. If NULL, no override should occur.
+	class idSoundEmitter *	referenceSound =  nullptr; // for shader sound tables, allowing effects to vary with sounds
+	float					shaderParms[MAX_ENTITY_SHADER_PARMS] = {}; // can be used in any way by shader or model generation
+	idImage*				fragmentMapOverride;	// If non-null, overrides the image in fragmentMap 0
 
 	// networking: see WriteGUIToSnapshot / ReadGUIFromSnapshot
-	class idUserInterface * gui[ MAX_RENDERENTITY_GUI ];
+	class idUserInterface*  gui[MAX_RENDERENTITY_GUI] = {};
 
 	struct renderView_s	*	remoteRenderView;		// any remote camera surfaces will use this
 
 	int						numJoints;
-	idJointMat *			joints;					// array of joints that will modify vertices.
+	idJointMat *			joints = nullptr; // array of joints that will modify vertices.
 													// NULL if non-deformable model.  NOT freed by renderer
 
 	float					modelDepthHack;			// squash depth range so particle effects don't clip into walls
@@ -155,12 +159,52 @@ typedef struct renderEntity_s {
 													// for the gigantic outdoor meshes in the monorail map, so
 													// all the lights in the moving monorail don't touch the meshes
 
+	bool					trackInteractions;		// Tell the renderer that the entity wants to know about its own light/ent interactions,
+													// probably for light/dark detection
+
+	interactionCallback_t	interactionCallback;	// Method that lets us feed our list of interactions through to the entity (if it is interested).
+													// It's the entity's job to handle this list correctly
+
+	bool					noFrustumCull;			// Ignore the usual frustum culling process when figuring out whether to draw this entity
+
 	bool					weaponDepthHack;		// squash depth range so view weapons don't poke into walls
 													// this automatically implies noShadow
+	int						spectrum;				// Determine which spectrum of light sources to interact with. (-1 means "we don't care, let materials decide")
 	int						forceUpdate;			// force an update (NOTE: not a bool to keep this struct a multiple of 4 bytes)
 	int						timeGroup;
 	int						xrayIndex;
+	unsigned int			customPostValue;		// SM: Used for some post-process effects
+	bool					isPlayer;				// SM: Option for lights to not cast a player shadow
+	bool					isFrozen;				// SM: Option specifying this render entity is frozen
 } renderEntity_t;
+
+enum customPostFlag_t
+{
+	POST_OUTLINE_FROB = 1,
+	POST_OUTLINE_ENEMY = 2,
+	// 4
+	// 8
+	// 16
+	// 32
+	POST_ZOOM_INSPECT = 64,
+	POST_INSPECT_LUMINANCE = 128,
+	// SM: Right now 128 is the max, if we need more bits we can change to support it
+};
+
+inline bool isCustomPostFlagSet(renderEntity_s* renderEntity, customPostFlag_t flag)
+{
+	return (renderEntity->customPostValue & flag) > 0;
+}
+
+inline void setCustomPostFlag(renderEntity_s* renderEntity, customPostFlag_t flag)
+{
+	renderEntity->customPostValue |= flag;
+}
+
+inline void clearCustomPostFlag(renderEntity_s* renderEntity, customPostFlag_t flag)
+{
+	renderEntity->customPostValue &= ~flag;
+}
 
 
 typedef struct renderLight_s {
@@ -184,6 +228,9 @@ typedef struct renderLight_s {
 
 	bool					pointLight;			// otherwise a projection light (should probably invert the sense of this, because points are way more common)
 	bool					parallel;			// lightCenter gives the direction to the light at infinity
+	// <blendo> eric: ambient flag
+	bool					isAmbient;
+	bool					castPlayerShadow;	// SM: Option for lights to not cast a player shadow
 	idVec3					lightRadius;		// xyz radius for point lights
 	idVec3					lightCenter;		// offset the lighting direction for shading and
 												// shadows, relative to origin
@@ -209,6 +256,14 @@ typedef struct renderLight_s {
 	const idMaterial *		shader;				// NULL = either lights/defaultPointLight or lights/defaultProjectedLight
 	float					shaderParms[MAX_ENTITY_SHADER_PARMS];		// can be used in any way by shader
 	idSoundEmitter *		referenceSound;		// for shader sound tables, allowing effects to vary with sounds
+    
+    
+    int						spectrum; //darkmod
+
+	// SW: Tells the renderer not to add this to the list of tracked interactions (if one is being composed).
+	// Use this for lights that you want to have a visual effect, but not contribute to the player's light meter.
+	bool					affectLightMeter; 
+    
 } renderLight_t;
 
 
@@ -291,11 +346,17 @@ public:
 	virtual	void			UpdateEntityDef( qhandle_t entityHandle, const renderEntity_t *re ) = 0;
 	virtual	void			FreeEntityDef( qhandle_t entityHandle ) = 0;
 	virtual const renderEntity_t *GetRenderEntity( qhandle_t entityHandle ) const = 0;
+	virtual int				EntityDefNum() const = 0;
+
+	virtual void			AddGlobalRenderEnt(qhandle_t handle) = 0;
+	virtual void			RemoveGlobalRenderEnt(qhandle_t handle) = 0;
 
 	virtual	qhandle_t		AddLightDef( const renderLight_t *rlight ) = 0;
 	virtual	void			UpdateLightDef( qhandle_t lightHandle, const renderLight_t *rlight ) = 0;
 	virtual	void			FreeLightDef( qhandle_t lightHandle ) = 0;
 	virtual const renderLight_t *GetRenderLight( qhandle_t lightHandle ) const = 0;
+	virtual int				LightDefNum() const = 0;
+	virtual const idMaterial* RemapShaderBySkin(const idMaterial* shader, const idDeclSkin* skin) = 0;
 
 	// Force the generation of all light / surface interactions at the start of a level
 	// If this isn't called, they will all be dynamically generated
@@ -303,6 +364,9 @@ public:
 
 	// returns true if this area model needs portal sky to draw
 	virtual bool			CheckAreaForPortalSky( int areaNum ) = 0;
+
+	//blendo eric: portalsky view params get set in playerview
+	virtual void			SetPortalSkyParams(bool enabled, idVec3 orig = vec3_zero, idVec2 shiftScale = vec2_zero) = 0;
 
 	//-------------- Decals and Overlays  -----------------
 
@@ -321,6 +385,9 @@ public:
 
 	// Removes all decals and overlays from the given entity def.
 	virtual void			RemoveDecals( qhandle_t entityHandle ) = 0;
+
+	// Removes all decals from all models
+	virtual void			RemoveAllDecals(void) = 0;
 
 	//-------------- Scene Rendering -----------------
 
@@ -371,6 +438,10 @@ public:
 	// returns one portal from an area
 	virtual exitPortal_t	GetPortal( int areaNum, int portalNum ) = 0;
 
+	// SM
+	// Get average point of all entities in an area (this is slow, don't do frequently)
+	virtual idVec3			GetAreaCenter( int areaNum ) const = 0;
+
 	//-------------- Tracing  -----------------
 
 	// Checks a ray trace against any gui surfaces in an entity, returning the
@@ -416,11 +487,15 @@ public:
 	virtual void			DebugWinding( const idVec4 &color, const idWinding &w, const idVec3 &origin, const idMat3 &axis, const int lifetime = 0, const bool depthTest = false ) = 0;
 	virtual void			DebugCircle( const idVec4 &color, const idVec3 &origin, const idVec3 &dir, const float radius, const int numSteps, const int lifetime = 0, const bool depthTest = false ) = 0;
 	virtual void			DebugSphere( const idVec4 &color, const idSphere &sphere, const int lifetime = 0, bool depthTest = false ) = 0;
-	virtual void			DebugBounds( const idVec4 &color, const idBounds &bounds, const idVec3 &org = vec3_origin, const int lifetime = 0 ) = 0;
-	virtual void			DebugBox( const idVec4 &color, const idBox &box, const int lifetime = 0 ) = 0;
+	virtual void			DebugBounds( const idVec4 &color, const idBounds &bounds, const idVec3 &org = vec3_origin, const int lifetime = 0, const idMat3 * axis = nullptr) = 0;
+	virtual void			DebugBox( const idVec4 &color, const idBox &box, const int lifetime = 0, const bool depthTest = false ) = 0;
 	virtual void			DebugFrustum( const idVec4 &color, const idFrustum &frustum, const bool showFromOrigin = false, const int lifetime = 0 ) = 0;
 	virtual void			DebugCone( const idVec4 &color, const idVec3 &apex, const idVec3 &dir, float radius1, float radius2, const int lifetime = 0 ) = 0;
 	virtual void			DebugAxis( const idVec3 &origin, const idMat3 &axis ) = 0;
+
+	//BC
+	virtual void			DebugArrowSimple(const idVec3 &end, const int lifetime = 10000, idVec4 color = idVec4(0,1,0,1)) = 0;
+	virtual void			DebugTextSimple(const char *text, const idVec3 &origin, const int lifetime = 10000, idVec4 color = idVec4(0,1,0,1)) = 0;
 
 	// Polygon drawing for debug visualization.
 	virtual void			DebugClearPolygons( int time ) = 0;		// a time of 0 will clear all polygons
