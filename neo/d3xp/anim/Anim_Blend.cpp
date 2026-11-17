@@ -2177,6 +2177,7 @@ idDeclModelDef::idDeclModelDef
 idDeclModelDef::idDeclModelDef() {
 	modelHandle	= NULL;
 	skin		= NULL;
+	overrideSkinInSubview	= NULL;
 	offset.Zero();
 	for ( int i = 0; i < ANIM_NumAnimChannels; i++ ) {
 		channelJoints[i].Clear();
@@ -2214,6 +2215,7 @@ void idDeclModelDef::CopyDecl( const idDeclModelDef *decl ) {
 	offset = decl->offset;
 	modelHandle = decl->modelHandle;
 	skin = decl->skin;
+	overrideSkinInSubview = decl->overrideSkinInSubview;
 
 	anims.SetNum( decl->anims.Num() );
 	for( i = 0; i < anims.Num(); i++ ) {
@@ -2240,6 +2242,7 @@ void idDeclModelDef::FreeData( void ) {
 	jointParents.Clear();
 	modelHandle	= NULL;
 	skin = NULL;
+	overrideSkinInSubview	= NULL;
 	offset.Zero();
 	for ( int i = 0; i < ANIM_NumAnimChannels; i++ ) {
 		channelJoints[i].Clear();
@@ -2397,6 +2400,15 @@ idDeclModelDef::GetDefaultSkin
 */
 const idDeclSkin *idDeclModelDef::GetDefaultSkin( void ) const {
 	return skin;
+}
+
+/*
+=====================
+idDeclModelDef::GetOverrideSkinInSubview
+=====================
+*/
+const idDeclSkin* idDeclModelDef::GetOverrideSkinInSubview(void) const {
+	return overrideSkinInSubview;
 }
 
 /*
@@ -2694,6 +2706,18 @@ bool idDeclModelDef::Parse( const char *text, const int textLength ) {
 			skin = declManager->FindSkin( token2 );
 			if ( !skin ) {
 				src.Warning( "Skin '%s' not found", token2.c_str() );
+				MakeDefault();
+				return false;
+			}
+		} else if ( token == "overrideSkinInSubview" ) {
+			if( !src.ReadToken( &token2 ) ) {
+				src.Warning( "Unexpected end of file" );
+				MakeDefault();
+				return false;
+			}
+			overrideSkinInSubview = declManager->FindSkin( token2 );
+			if ( !overrideSkinInSubview ) {
+				src.Warning( "OverrideSkinInSubview '%s' not found", token2.c_str() );
 				MakeDefault();
 				return false;
 			}

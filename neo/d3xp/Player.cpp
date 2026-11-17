@@ -1744,7 +1744,7 @@ void idPlayer::Spawn( void ) {
 	if ( entityNumber >= MAX_CLIENTS ) {
 		gameLocal.Error( "entityNum > MAX_CLIENTS for player.  Player may only be spawned with a client." );
 	}
-
+	gameLocal.Printf("idPlayer::Spawn!\n");
 	// allow thinking during cinematics
 	cinematic = true;
 
@@ -1826,7 +1826,7 @@ void idPlayer::Spawn( void ) {
 	playerView.SetPlayerEntity( this );
 
 	// supress model in non-player views, but allow it in mirrors and remote views
-	renderEntity.suppressSurfaceInViewID = entityNumber+1;
+	renderEntity.suppressSurfaceInViewID = 0;//entityNumber+1;
 
 	// don't project shadow on self or weapon
 	renderEntity.noSelfShadow = true;
@@ -8737,6 +8737,8 @@ renderView_t *idPlayer::GetRenderView( void ) {
 idPlayer::CalculateRenderView
 
 create the renderView for the current tic
+
+mel <fpb>: making a note of this for first person body
 ==================
 */
 void idPlayer::CalculateRenderView( void ) {
@@ -8795,6 +8797,15 @@ void idPlayer::CalculateRenderView( void ) {
 			// set the viewID to the clientNum + 1, so we can suppress the right player bodies and
 			// allow the right player view weapons
 			renderView->viewID = entityNumber + 1;
+
+			if ( g_showPlayerBody.GetBool())
+			{
+				renderEntity.suppressSurfaceInViewID = 0;
+			}
+			else
+			{
+				renderEntity.suppressSurfaceInViewID = entityNumber + 1;
+			}
 		}
 
 		// field of view

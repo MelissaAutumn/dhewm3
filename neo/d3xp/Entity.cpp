@@ -275,6 +275,16 @@ void idGameEdit::ParseSpawnArgsToRenderEntity( const idDict *args, renderEntity_
 		renderEntity->customSkin = modelDef->GetDefaultSkin();
 	}
 
+	// SW: Check for an 'override' skin that only shows up in subviews (e.g. mirrors, remote cameras).
+	// The main use case for this is drawing the player's arms in mirrors, no matter what skin they currently have
+	temp = args->GetString("overrideSkinInSubview");
+	if (temp[0] != '\0') {
+		renderEntity->overrideSkinInSubview = declManager->FindSkin(temp);
+	}
+	else if (modelDef) {
+		renderEntity->overrideSkinInSubview = modelDef->GetOverrideSkinInSubview();
+	}
+
 	temp = args->GetString( "shader" );
 	if ( temp[0] != '\0' ) {
 		renderEntity->customShader = declManager->FindMaterial( temp );

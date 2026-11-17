@@ -343,6 +343,7 @@ public:
 	void						Touch( void ) const;
 
 	const idDeclSkin *			GetDefaultSkin( void ) const;
+	const idDeclSkin *			GetOverrideSkinInSubview(void) const;
 	const idJointQuat *			GetDefaultPose( void ) const;
 	void						SetupJoints( int *numJoints, idJointMat **jointList, idBounds &frameBounds, bool removeOriginOffset ) const;
 	idRenderModel *				ModelHandle( void ) const;
@@ -378,6 +379,7 @@ private:
 	idRenderModel *				modelHandle;
 	idList<idAnim *>			anims;
 	const idDeclSkin *			skin;
+	const idDeclSkin *			overrideSkinInSubview;
 };
 
 /*

@@ -305,4 +305,7 @@ extern const char *si_gameTypeArgs[];
 
 extern const char *ui_skinArgs[];
 
+extern idCVar	g_showPlayerBody;
+
+
 #endif /* !__SYS_CVAR_H__ */

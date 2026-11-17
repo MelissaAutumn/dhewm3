@@ -521,6 +521,7 @@ void idSaveGame::WriteRenderEntity( const renderEntity_t &renderEntity ) {
 	WriteMaterial( renderEntity.customShader );
 	WriteMaterial( renderEntity.referenceShader );
 	WriteSkin( renderEntity.customSkin );
+	WriteSkin( renderEntity.overrideSkinInSubview ); // const idDeclSkin * overrideSkinInSubview // blendo eric: added
 
 	if ( renderEntity.referenceSound != NULL ) {
 		WriteInt( renderEntity.referenceSound->Index() );
@@ -1297,6 +1298,7 @@ void idRestoreGame::ReadRenderEntity( renderEntity_t &renderEntity ) {
 	ReadMaterial( renderEntity.customShader );
 	ReadMaterial( renderEntity.referenceShader );
 	ReadSkin( renderEntity.customSkin );
+	ReadSkin( renderEntity.overrideSkinInSubview ); // const idDeclSkin * overrideSkinInSubview // blendo eric: added
 
 	ReadInt( index );
 	renderEntity.referenceSound = gameSoundWorld->EmitterForIndex( index );
