@@ -8698,12 +8698,12 @@ void idPlayer::CalculateFirstPersonView( void ) {
     	idVec3 origin;
 
     	jointHandle_t joint = animator.GetJointHandle( "Head" );
-        animator.GetJointTransform( joint, gameLocal.time, origin, _axis );
-
-        // mel <fpb>: Total hack, use the existing view model offsets to position based off of Head (so we don't clip during ugly jog forward!)
-        // The X is so we stop seeing neck during jog forward too.
-        g_viewNodalX.SetFloat(3.0f);
-        g_viewNodalZ.SetFloat(origin.x + 11.0f);
+        if (animator.GetJointTransform( joint, gameLocal.time, origin, _axis )) {
+            // mel <fpb>: Total hack, use the existing view model offsets to position based off of Head (so we don't clip during ugly jog forward!)
+            // The X is so we stop seeing neck during jog forward too.
+            g_viewNodalX.SetFloat(3.0f);
+            g_viewNodalZ.SetFloat(origin.x + 11.0f);
+        }
 
 		// offset for local bobbing and kicks
 		GetViewPos( firstPersonViewOrigin, firstPersonViewAxis );
