@@ -29,7 +29,15 @@ If you have questions concerning this license or the applicable additional terms
 #include "global.glsl"
 
 in vec4 in_position;
+in vec4 in_texcoord;
+
+out VS_OUT
+{
+    vec4 texcoord[1];
+} result;
 
 void main() {
+    result.texcoord[0] = uTextureMatrix * in_texcoord;
+
     gl_Position = uProjectionMatrix * uModelViewMatrix * in_position;
 }

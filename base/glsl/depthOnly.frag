@@ -27,26 +27,34 @@
     */
 
 #include "global.glsl"
-/*
-    * Guestimated from contents of Texture.pixel
-    */
 
-layout(binding = 0) uniform samplerCube samp; // texture 0 is the normalization cube map for the vector towards the light
-// Also seems to contain 1 (reflection?) and 2 (null)
+layout(binding = 0) uniform sampler2D samp0;
 
 in VS_OUT
 {
     vec4 texcoord[1];
-    vec4 color;
 } fragment;
 
 layout(location = 0) out vec4 colour;
 
 // From RB_STD_DrawView
 #define PP_MAIN_COLOR 0
+#define PP_ALPHA_TEST 1
 
 void main()
 {
+    // red channel contains the test
+    if (uProgramEnv[PP_ALPHA_TEST].r <= 0.0f) {
+        colour = uProgramEnv[PP_MAIN_COLOR];
+        return;
+    }
 
-    colour = uProgramEnv[PP_MAIN_COLOR];
+    // texture contains white image with alpha masking any transparencies
+    vec4 tex = texture(samp0, fragment.texcoord[0].xy);
+    // Alpha test contains a cutoff value, discard any values below it
+    if (tex.a <= uProgramEnv[PP_ALPHA_TEST].r) {
+        discard;
+    }
+
+    colour = uProgramEnv[PP_MAIN_COLOR] * tex;
 }
