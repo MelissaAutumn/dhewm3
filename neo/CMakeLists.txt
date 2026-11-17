@@ -48,6 +48,7 @@ include(CheckCXXCompilerFlag)
 include(GNUInstallDirs OPTIONAL RESULT_VARIABLE GNUINSTALLDIRS)
 include(TestBigEndian)
 
+option(EXPORT_COMPILE_COMMANDS "Exports compile_commands.json for clangd" ON)
 option(CORE			"Build the core" ON)
 option(BASE			"Build the base game code" OFF)
 option(D3XP			"Build the d3xp game code" ON)
@@ -65,6 +66,10 @@ option(REPRODUCIBLE_BUILD "Replace __DATE__ and __TIME__ by hardcoded values for
 option(TRACY		"Build and integrate the Tracy profiler, requires HARDLINK_GAME" OFF)
 
 option(HARDLINK_GAME "Compile gamecode into executable (no game DLLs)" OFF)
+
+if (EXPORT_COMPILE_COMMANDS)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+endif()
 
 if(NOT MSVC) # GCC/clang or compatible, hopefully
 	option(FORCE_COLORED_OUTPUT "Always produce ANSI-colored compiler warnings/errors (GCC/Clang only; esp. useful with ninja)." OFF)
