@@ -26,6 +26,7 @@ If you have questions concerning this license or the applicable additional terms
 ===========================================================================
 */
 
+#include "idlib/math/Matrix.h"
 #include "sys/platform.h"
 #include "idlib/LangDict.h"
 #include "framework/async/NetworkSystem.h"
@@ -6925,13 +6926,21 @@ void idPlayer::AdjustBodyAngles( void ) {
 
 	oldViewYaw = viewAngles.yaw;
 
+	// mel <fpb>: better align view with chest / first person mesh
+	// will probably need to have separate arms like SD does but it works-ish for now.
+	idAngles fpsAngles = playerView.AngleOffset();//viewAngles + viewBobAngles + playerView.AngleOffset();
+	idMat3 chestAngle = idAngles( viewAngles.pitch, 0.0f, 0.0f ).ToMat3();
+	animator.SetJointAxis( chestJoint, JOINTMOD_WORLD, chestAngle );
+
+	// TODO: mel: make this a cvar
+	const float idealLegsYawCutOff = 15.0f;
 	AI_TURN_LEFT = false;
 	AI_TURN_RIGHT = false;
-	if ( idealLegsYaw < -45.0f ) {
+	if ( idealLegsYaw < (-1.0f * idealLegsYawCutOff) ) {
 		idealLegsYaw = 0;
 		AI_TURN_RIGHT = true;
 		blend = true;
-	} else if ( idealLegsYaw > 45.0f ) {
+	} else if ( idealLegsYaw > idealLegsYawCutOff ) {
 		idealLegsYaw = 0;
 		AI_TURN_LEFT = true;
 		blend = true;
