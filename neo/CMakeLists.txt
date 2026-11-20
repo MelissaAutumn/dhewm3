@@ -58,8 +58,8 @@ if(MSVC)
 endif()
 option(DEDICATED	"Build the dedicated server" OFF)
 option(ONATIVE		"Optimize for the host CPU" OFF)
-option(SDL2			"Use SDL2 instead of SDL1.2" OFF)
-option(SDL3			"Use SDL3 instead of SDL2 or SDL1.2" ON)
+option(SDL2			"Use SDL2 instead of SDL1.2" ON)
+option(SDL3			"Use SDL3 instead of SDL2 or SDL1.2" OFF)
 option(IMGUI		"Build with Dear ImGui integration - requires SDL2/SDL3 and C++11" ON)
 option(REPRODUCIBLE_BUILD "Replace __DATE__ and __TIME__ by hardcoded values for reproducible builds" OFF)
 
@@ -67,12 +67,20 @@ option(TRACY		"Build and integrate the Tracy profiler, requires HARDLINK_GAME" O
 
 option(HARDLINK_GAME "Compile gamecode into executable (no game DLLs)" OFF)
 
+option(BUILD_WITH_LIBCURL "Build with libcurl support" OFF)
+option(CIBUILD "Is this a build from continous integration (github actions)?" OFF)
+
+if (CIBUILD)
+add_definitions(-DCIBUILD=ON)
+message(STATUS "This is a CI build")
+endif()
+
 if (EXPORT_COMPILE_COMMANDS)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 endif()
 
 if(NOT MSVC) # GCC/clang or compatible, hopefully
-	option(FORCE_COLORED_OUTPUT "Always produce ANSI-colored compiler warnings/errors (GCC/Clang only; esp. useful with ninja)." OFF)
+	option(FORCE_COLORED_OUTPUT "Always produce ANSI-colored compiler warnings/errors (GCC/Clang only; esp. useful with ninja)." ON)
 	option(ASAN		"Enable GCC/Clang Adress Sanitizer (ASan)" OFF) # TODO: MSVC might also support this, somehow?
 	option(UBSAN	"Enable GCC/Clang Undefined Behavior Sanitizer (UBSan), implies HARDLINK_GAME" OFF)
 
@@ -186,6 +194,7 @@ if(DHEWM3LIBS)
 	set(ENV{OPENALDIR} ${DHEWM3LIBS})
 	set(ENV{SDLDIR} ${DHEWM3LIBS})
 	set(ENV{SDL2DIR} ${DHEWM3LIBS})
+
 endif()
 
 if(CMAKE_MAJOR_VERSION LESS 3 OR ( CMAKE_MAJOR_VERSION EQUAL 3 AND CMAKE_MINOR_VERSION LESS 8 ))
@@ -202,6 +211,7 @@ endif()
 # libs
 find_package(OpenAL REQUIRED)
 include_directories(${OPENAL_INCLUDE_DIR})
+message(WARNING "Here's the var! [DHEWM3LIBS=${DHEWM3LIBS}] / [OPENAL_INCLUDE_DIR=${OPENAL_INCLUDE_DIR}]")
 
 if (SDL3)
 	if(SDL2)
@@ -268,12 +278,12 @@ if(DEFINED ENV{MSYSTEM})
 endif()
 
 find_package(CURL QUIET)
-if(CURL_FOUND)
+if(BUILD_WITH_LIBCURL AND CURL_FOUND)
 	set(ID_ENABLE_CURL ON)
 	include_directories(${CURL_INCLUDE_DIR})
 	message(STATUS "libcurl found and enabled")
 else()
-	message(WARNING "libcurl not found, server downloads won't be available (apart from that dhewm3 will work)")
+	#message(WARNING "libcurl not found, server downloads won't be available (apart from that dhewm3 will work)")
 	set(ID_ENABLE_CURL OFF)
 	set(CURL_LIBRARY "")
 endif()

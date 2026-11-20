@@ -39,7 +39,7 @@ jobs:
       run: |
         mkdir build
         cd build
-        cmake -G Ninja -DDEDICATED=ON ../neo/
+        cmake -G Ninja -DDEDICATED=ON -DCIBUILD=ON ../neo/
         ninja
     - name: Create testbuild package
       run: |
@@ -47,23 +47,22 @@ jobs:
         export PKGDIR="dhewm3-linux-${{ matrix.arch }}-$(git rev-parse --short HEAD)"
         echo "pkgname=$PKGDIR" >> $GITHUB_ENV
         mkdir -p publish/$PKGDIR/base
-        mkdir publish/$PKGDIR/d3xp
         # Copy release assets
         cd build
-        cp dhewm3 dhewm3ded base.so d3xp.so ../publish/$PKGDIR/
+        cp dhewm3 dhewm3ded base.so ../publish/$PKGDIR/
         cd ..
         # Copy misc assets
         cp base/gamepad.cfg publish/$PKGDIR/base/
-        cp base/gamepad-d3xp.cfg publish/$PKGDIR/d3xp/
+        cp -r base/glsl publish/$PKGDIR/base/
         cp COPYING.txt publish/$PKGDIR/
-
         echo "dhewm3 for ${{ matrix.arch }} Linux, built $(date)" > publish/$PKGDIR/README.txt
         echo -e "from ${{ github.ref_name }} commit ${{ github.sha }}\n" >> publish/$PKGDIR/README.txt
         echo "!!! Note that you must set dhewm3(ded) executable !!!" >> publish/$PKGDIR/README.txt
         echo "! In a Terminal, in this directory, run:" >> publish/$PKGDIR/README.txt
         echo "  chmod 755 dhewm3 dhewm3ded" >> publish/$PKGDIR/README.txt
         echo -e "(this is because of limitations in Githubs Workflow Actions)\n" >> publish/$PKGDIR/README.txt
-        cat README.md >> publish/$PKGDIR/README.txt
+        cat readme.md >> publish/$PKGDIR/README.txt
+        cp dhewm3.md publish/$PKGDIR/dhewm3.txt
         cp Changelog.md publish/$PKGDIR/Changelog.txt
         cp Configuration.md publish/$PKGDIR/Configuration.txt
     - name: Upload testbuild package

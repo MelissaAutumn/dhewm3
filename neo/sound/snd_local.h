@@ -39,9 +39,16 @@ If you have questions concerning this license or the applicable additional terms
 #define AL_DISABLE_NOEXCEPT
 #endif
 
+// For some reason CI builds for windows are including the "AL" part in the includes...
+#if (defined(_WIN32) || defined(_WIN64)) && defined(CIBUILD)
+#include <al.h>
+#include <alc.h>
+#include <alext.h>
+#else
 #include <AL/al.h>
 #include <AL/alc.h>
 #include <AL/alext.h>
+#endif
 
 // DG: make this code build with older OpenAL headers that don't know about ALC_SOFT_HRTF
 //     which provides LPALCRESETDEVICESOFT for idSoundSystemLocal::alcResetDeviceSOFT()

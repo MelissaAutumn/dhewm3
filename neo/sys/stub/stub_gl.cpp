@@ -403,6 +403,7 @@ void GLimp_UpdateWindowSize() {}
 bool GLimp_SetWindowResizable( bool enableResizable ) { return false; }
 glimpParms_t GLimp_GetCurState() { glimpParms_t ret = {}; return ret; }
 float GLimp_GetDisplayRefresh() { return 0.0f; }
+void GLimp_ClearFrameBuffers() {};
 
 #ifdef _MSC_VER
 #pragma warning(pop)
