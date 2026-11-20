@@ -1,9 +1,10 @@
 name: Testbuild for MacOS
 run-name: testbuild_macos
 on:
+  workflow_dispatch:
   push:
     branches:
-      - 'master'
+      - 'mel-main'
   pull_request:
     types:
       - edited

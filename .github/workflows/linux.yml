@@ -1,9 +1,10 @@
 name: Testbuild for Linux
 run-name: testbuild_linux
 on:
+  workflow_dispatch:
   push:
     branches:
-      - 'master'
+      - 'mel-main'
   pull_request:
     types:
       - edited
@@ -24,9 +25,9 @@ jobs:
             runner: ubuntu-22.04
           - arch: aarch64
             runner: ubuntu-22.04-arm
-    
+
     runs-on: ${{ matrix.runner }}
-    
+
     steps:
     - name: Install build dependencies
       run: |
@@ -55,7 +56,7 @@ jobs:
         cp base/gamepad.cfg publish/$PKGDIR/base/
         cp base/gamepad-d3xp.cfg publish/$PKGDIR/d3xp/
         cp COPYING.txt publish/$PKGDIR/
-        
+
         echo "dhewm3 for ${{ matrix.arch }} Linux, built $(date)" > publish/$PKGDIR/README.txt
         echo -e "from ${{ github.ref_name }} commit ${{ github.sha }}\n" >> publish/$PKGDIR/README.txt
         echo "!!! Note that you must set dhewm3(ded) executable !!!" >> publish/$PKGDIR/README.txt

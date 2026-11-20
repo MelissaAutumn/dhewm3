@@ -1,9 +1,10 @@
 name: Testbuild for x86 and x86_64 Windows
 run-name: testbuild_windows
 on:
+  workflow_dispatch:
   push:
     branches:
-      - 'master'
+      - 'mel-main'
   pull_request:
     types:
       - edited
