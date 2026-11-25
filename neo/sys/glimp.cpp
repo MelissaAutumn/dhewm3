@@ -207,13 +207,6 @@ bool GLimp_Init(glimpParms_t parms) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 
-
-	// Force EGL
-	SDL_SetHint(SDL_HINT_VIDEO_FORCE_EGL, "1");
-	//SDL_SetHint(SDL_HINT_OPENGL_FORCE_SRGB_FRAMEBUFFER, "skip");
-	//SDL_EGL_SetAttributeCallbacks(nullptr, &eglSurfaceCallback, nullptr, nullptr);
-
-
 	if (parms.fullScreen == 1)
 	{
 #if SDL_VERSION_ATLEAST(3, 0, 0)
@@ -337,8 +330,7 @@ bool GLimp_Init(glimpParms_t parms) {
 try_again:
 
 // TODO: mel <hdr>: detect and use 10bit colour
-        channelcolorbits = 10;
-#if 0
+#if 1   // Note: These settings will crash EGL or later opengl versions
 		SDL_GL_SetAttribute(SDL_GL_RED_SIZE, channelcolorbits);
 		SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, channelcolorbits);
 		SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, channelcolorbits);
