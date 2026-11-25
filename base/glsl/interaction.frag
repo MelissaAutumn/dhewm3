@@ -43,7 +43,8 @@ in VS_OUT
     vec4 color;
 } fragment;
 
-layout(location = 0) out vec4 color;
+layout(location = 0) out vec4 out_color;
+layout(location = 1) out vec4 out_light;
 
 // ProgramEnv strays
 #define PP_DIFFUSE_COLOUR 0
@@ -51,27 +52,39 @@ layout(location = 0) out vec4 color;
 
 void main()
 {
-    vec3 lightVector = normalize(fragment.texcoord[0].xyz);
+    const float gamma = 2.2;
+    const float specularPower = 4.0f;
 
+    //vec3 lightVector = normalize(fragment.texcoord[0].xyz);
     vec4 bumpMap = texture(samp0, fragment.texcoord[1].xy);
     vec4 lightFalloff = idtex2Dproj(samp1, fragment.texcoord[2]);
     vec4 lightProj = idtex2Dproj(samp2, fragment.texcoord[3]);
     vec3 diffuseMap = texture(samp3, fragment.texcoord[4].xy).xyz;
     vec4 specMap = texture(samp4, fragment.texcoord[5].xy);
 
+    vec4 subOne = vec4(-1, -1, -1, -1); // PARAM	subOne = { -1, -1, -1, -1 };
+    vec4 scaleTwo = vec4(2, 2, 2, 2); // PARAM   scaleTwo = { 2, 2, 2, 2 };
+    vec4 light = texture(samp_cubemap, fragment.texcoord[0].xyz); // TEX	light, fragment.texcoord[0], texture[0], CUBE;
+    light = light * scaleTwo + subOne; // MAD	light, light, scaleTwo, subOne;
+
     vec3 localNormal;
     localNormal.xy = bumpMap.wy - 0.5;
     localNormal.z = sqrt(abs(dot(localNormal.xy, localNormal.xy) - 0.25));
     localNormal = normalize(localNormal);
 
-    const float specularPower = 10.0f;
     float hDotN = dot3(normalize(fragment.texcoord[6].xyz), localNormal);
     vec3 specularContribution = vec3(pow(hDotN, specularPower));
 
     vec3 diffuseColor = diffuseMap * uProgramEnv[PP_DIFFUSE_COLOUR].xyz;
     vec3 specularColor = specMap.xyz * specularContribution * uProgramEnv[PP_SPECULAR_COLOUR].xyz;
-    vec3 lightColor = dot3(lightVector, localNormal) * lightProj.xyz * lightFalloff.xyz;
 
-    color.rgb = (diffuseColor + specularColor) * (lightColor * fragment.color.xyz);
-    color.a = 1.0;
+    light = vec4(dot(light.xyz, localNormal));
+    light = max(light, vec4(uProgramEnv[PP_AMBIENT_LEVEL]));
+    light = light * lightProj * lightFalloff;
+
+    out_light = light;
+
+    out_color.rgb = (diffuseColor + specularColor) * (light.rgb * fragment.color.xyz);
+    out_color.rgb = pow(out_color.rgb, vec3(1.0 / gamma));
+    out_color.a = 1.0;
 }
