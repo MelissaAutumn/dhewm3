@@ -29,6 +29,7 @@ If you have questions concerning this license or the applicable additional terms
 #ifndef __TR_LOCAL_H__
 #define __TR_LOCAL_H__
 
+#include "framework/CVarSystem.h"
 class idScreenRect; // yay for include recursion
 
 #include "renderer/Image.h"
@@ -930,7 +931,9 @@ extern idCVar r_gamma;					// changes gamma tables
 extern idCVar r_brightness;				// changes gamma tables
 extern idCVar r_gammaInShader;			// set gamma+brightness in shader instead of modifying system gamma tables
 
-
+extern idCVar r_hdrSupported;           // mel <hdr>: Does SDL report that there's at least one hdr enabled display?
+extern idCVar r_hdrWhiteLevel;          // mel <hdr>: White level SDR content should appear as
+extern idCVar r_hdrHeadroom;            // mel <hdr>: white_level * headroom = max brightness
 extern idCVar r_tonemap;                // mel <hdr>: What tonemapper to use (0 = none, 1 = reinhard)
 extern idCVar r_exposure;               // mel <hdr>: Eye exposure
 
@@ -1176,6 +1179,8 @@ typedef struct {
 	int			displayHz; // TODO: SDL3 uses float
 	int			multiSamples;
 } glimpParms_t;
+
+void        GLimp_HandleHDREvent();
 
 bool		GLimp_Init( glimpParms_t parms );
 // If the desired mode can't be set satisfactorily, false will be returned.

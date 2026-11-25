@@ -44,7 +44,7 @@ in VS_OUT
 } fragment;
 
 layout(location = 0) out vec4 out_color;
-layout(location = 1) out vec4 out_light;
+//layout(location = 1) out vec4 out_light;
 
 // ProgramEnv strays
 #define PP_DIFFUSE_COLOUR 0
@@ -81,7 +81,7 @@ void main()
     light = max(light, vec4(uProgramEnv[PP_AMBIENT_LEVEL]));
     light = light * lightProj * lightFalloff;
 
-    out_light = light;
+    //out_light = light;
 
     out_color.rgb = (diffuseColor + specularColor) * (light.rgb * fragment.color.xyz);
     out_color.a = 1.0;

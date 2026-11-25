@@ -97,6 +97,9 @@ idCVar r_gamma( "r_gamma", "2.2", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_FLOAT, "ch
 idCVar r_brightness( "r_brightness", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_FLOAT, "changes gamma tables", 0.5f, 2.0f );
 idCVar r_gammaInShader( "r_gammaInShader", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL, "Set gamma and brightness in shaders instead using hardware gamma" );
 
+idCVar r_hdrSupported("r_hdrSupported", "0", CVAR_RENDERER | CVAR_BOOL | CVAR_ROM, "Is there at least one hdr enabled display?");
+idCVar r_hdrWhiteLevel("r_hdrWhiteLevel", "1.0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_FLOAT, "White level SDR content should appear as");
+idCVar r_hdrHeadroom("r_hdrHeadroom", "1.0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_FLOAT, "Multiplier for white level to retrieve max brightness");
 idCVar r_tonemap("r_tonemap", "1.0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_FLOAT, "0 for no tonemapping, 1.0 for reinhard", 0.0, 2.0);
 idCVar r_exposure("r_exposure", "1.0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_FLOAT, "tonemapping / eye exposure", 0.0, 100.0);
 
