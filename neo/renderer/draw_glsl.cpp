@@ -208,6 +208,7 @@ void RB_GLSL_CreateDrawInteractions( const drawSurf_t *surf ) {
 		RB_CreateSingleDrawInteractions( surf, RB_GLSL_DrawInteraction );
 	}
 
+
 	// disable features
 	GLSL_SelectTextureNoClient( 6 );
 	globalImages->BindNull();
@@ -416,7 +417,8 @@ idStr globalShaders[] = {
 	"basicCube",
 	//"basicObjectLinear",
 	"fogLight",
-	//"customMaskPass"
+	//"customMaskPass",
+	"tonemap"
 };
 
 /*

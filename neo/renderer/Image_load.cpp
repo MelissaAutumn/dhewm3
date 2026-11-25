@@ -324,9 +324,9 @@ GLenum idImage::SelectInternalFormat( const byte **dataPtrs, int numDataPtrs, in
 				return GL_COMPRESSED_RGBA_S3TC_DXT3_EXT;
 			}
 		} else if ( ( aAnd == 255 || aOr == 0 ) ) {
-			return GL_RGB5;
+			return GL_SRGB;
 		} else {
-			return GL_RGBA4;
+			return GL_SRGB_ALPHA;
 		}
 	}
 
@@ -344,13 +344,13 @@ GLenum idImage::SelectInternalFormat( const byte **dataPtrs, int numDataPtrs, in
 	// cases without alpha
 	if ( !needAlpha ) {
 		if ( minimumDepth == TD_HIGH_QUALITY ) {
-			return GL_RGB8;			// four bytes
+			return GL_SRGB;			// four bytes
 		}
 		if ( glConfig.textureCompressionAvailable ) {
 			return useBC7compression ? GL_COMPRESSED_RGBA_BPTC_UNORM    // 1byte/pixel
 			                         : GL_COMPRESSED_RGB_S3TC_DXT1_EXT; // half byte
 		}
-		return GL_RGB5;			// two bytes
+		return GL_SRGB;			// two bytes
 	}
 
 	// cases with alpha
@@ -372,7 +372,7 @@ GLenum idImage::SelectInternalFormat( const byte **dataPtrs, int numDataPtrs, in
 #endif
 
 	if ( minimumDepth == TD_HIGH_QUALITY ) {
-		return GL_RGBA8;	// four bytes
+		return GL_SRGB_ALPHA;	// four bytes
 	}
 	if ( glConfig.textureCompressionAvailable ) {
 		return useBC7compression ? GL_COMPRESSED_RGBA_BPTC_UNORM : GL_COMPRESSED_RGBA_S3TC_DXT3_EXT; // one byte
@@ -380,7 +380,7 @@ GLenum idImage::SelectInternalFormat( const byte **dataPtrs, int numDataPtrs, in
 	if ( !rgbDiffer ) {
 		return GL_LUMINANCE8_ALPHA8;	// two bytes, max quality
 	}
-	return GL_RGBA4;	// two bytes
+	return GL_SRGB_ALPHA;	// two bytes
 }
 
 /*

@@ -40,6 +40,7 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "sys/sys_public.h"
 #include "sys/sys_imgui.h"
+#include <SDL3/SDL_events.h>
 
 #if !SDL_VERSION_ATLEAST(2, 0, 0)
 #define SDL_Keycode SDLKey
@@ -1278,6 +1279,9 @@ sysEvent_t Sys_GetEvent() {
 			case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
 				GLimp_UpdateWindowSize();
 				continue;  // handle next event
+			case SDL_EVENT_WINDOW_HDR_STATE_CHANGED:
+			    GLimp_HandleHDREvent();
+				continue;  // handle next event
 
 #elif SDL_VERSION_ATLEAST(2, 0, 0)
 		case SDL_WINDOWEVENT:
@@ -1286,7 +1290,7 @@ sysEvent_t Sys_GetEvent() {
 						// unset modifier, in case alt-tab was used to leave window and ALT is still set
 						// as that can cause fullscreen-toggling when pressing enter...
 						SDL_Keymod currentmod = SDL_GetModState();
-					
+
 						int newmod = KMOD_NONE;
 						if (currentmod & KMOD_CAPS) // preserve capslock
 							newmod |= KMOD_CAPS;
@@ -1925,4 +1929,3 @@ int	Sys_ReturnJoystickInputEvent( const int n, int &action, int &value ) {
 void Sys_EndJoystickInputEvents() {
 	joystick_polls.SetNum(0, false);
 }
-

@@ -26,6 +26,8 @@ If you have questions concerning this license or the applicable additional terms
 ===========================================================================
 */
 
+#include "framework/CVarSystem.h"
+#include "renderer/tr_local.h"
 #include "sys/platform.h"
 #include "renderer/RenderWorld.h"
 
@@ -1703,6 +1705,9 @@ void FullscreenFXManager::CreateFX( idStr name, idStr fxtype, int fade ) {
 	else if ( fxtype == "bloom" ) {
 		pfx = new FullscreenFX_Bloom;
 	}
+	else if (fxtype == "tonemap") {
+	    pfx = new FullscreenFX_Tonemap;
+	}
 	else {
 		assert( 0 );
 	}
@@ -1734,6 +1739,7 @@ void FullscreenFXManager::Initialize( idPlayerView *pv ) {
 	CreateFX( "multiplayer", "multiplayer", 1000 );
 	CreateFX( "influencevision", "influencevision", 1000 );
 	CreateFX( "bloom", "bloom", 0 );
+	CreateFX("tonemap", "tonemap", 0);
 
 	// pre-cache the texture grab so we dont hitch
 	renderSystem->CropRenderSize( 512, 512, true );
@@ -1896,5 +1902,21 @@ void FullscreenFXManager::Process( const renderView_t *view ) {
 }
 
 
+void FullscreenFX_Tonemap::Initialize() {
+    material = declManager->FindMaterial("textures/fx/tonemap");
+}
+
+bool FullscreenFX_Tonemap::Active() {
+    return true;
+}
+
+void FullscreenFX_Tonemap::HighQuality() {
+    float gamma = cvarSystem->GetCVarFloat("r_gamma");
+    float applyTonemapping = cvarSystem->GetCVarFloat("r_tonemap");
+    float exposure = cvarSystem->GetCVarFloat("r_exposure");
+	renderSystem->PrepareForPostProcessPass();
+    renderSystem->SetColor4(gamma, applyTonemapping, exposure, 1.0);
+    renderSystem->DrawStretchPic(0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f, 1.0f, 0.0f, material);
+}
 
 #endif

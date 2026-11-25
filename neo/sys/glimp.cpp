@@ -27,6 +27,11 @@ If you have questions concerning this license or the applicable additional terms
 */
 
 #include "sys/sys_sdl.h"
+#include <EGL/egl.h>
+#include <SDL3/SDL_hints.h>
+#include <SDL3/SDL_properties.h>
+#include <SDL3/SDL_stdinc.h>
+#include <SDL3/SDL_video.h>
 
 #if SDL_VERSION_ATLEAST(3, 0, 0)
   // backwards-compat with SDL2
@@ -174,6 +179,18 @@ static void SetSDLIcon()
 }
 #endif // SDL2 and SDL1.2
 
+void GLimp_HandleHDREvent() {
+    // query about hdr output support
+	auto windowProps = SDL_GetWindowProperties(window);
+	bool is_hdr_supported = SDL_GetBooleanProperty(windowProps, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false);
+	float hdr_white_levels = SDL_GetFloatProperty(windowProps, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, 1.0f);
+	float hdr_headroom = SDL_GetFloatProperty(windowProps, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0);
+	r_hdrSupported.SetBool(is_hdr_supported);
+	r_hdrWhiteLevel.SetFloat(hdr_white_levels);
+	r_hdrHeadroom.SetFloat(hdr_headroom);
+	//common->Warning("!!!! HDR INFO:\n * Supported: %d\n * SDR White Level: %f\n * HDR Headroom: %f\n", is_hdr_supported, hdr_white_levels, hdr_headroom);
+}
+
 /*
 ===================
 GLimp_Init
@@ -185,6 +202,10 @@ bool GLimp_Init(glimpParms_t parms) {
 	assert(SDL_WasInit(SDL_INIT_VIDEO));
 
 	My_SDL_WindowFlags flags = SDL_WINDOW_OPENGL;
+
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 
 	if (parms.fullScreen == 1)
 	{
@@ -308,6 +329,8 @@ bool GLimp_Init(glimpParms_t parms) {
 
 try_again:
 
+// TODO: mel <hdr>: detect and use 10bit colour
+#if 1   // Note: These settings will crash EGL or later opengl versions
 		SDL_GL_SetAttribute(SDL_GL_RED_SIZE, channelcolorbits);
 		SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, channelcolorbits);
 		SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, channelcolorbits);
@@ -321,7 +344,7 @@ try_again:
 
 		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, (multisamples > 1) ? 1 : 0);
 		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, multisamples);
-
+#endif
 #if SDL_VERSION_ATLEAST(2, 0, 0) // SDL2 and SDL3 window creation
 
 		if ( r_glDebugContext.GetBool() ) {
@@ -420,6 +443,8 @@ try_again:
 
 		window = SDL_CreateWindowWithProperties(props);
 		SDL_DestroyProperties(props);
+
+
 		if (window == NULL) {
 			common->Warning("Couldn't set GL mode %d/%d/%d with %dx MSAA: %s",
 							channelcolorbits, tdepthbits, tstencilbits, multisamples, SDL_GetError());
@@ -439,6 +464,9 @@ try_again:
 			parms.multiSamples = multisamples;
 			r_multiSamples.SetInteger(multisamples);
 		}
+
+		// Inqure about the current display
+		GLimp_HandleHDREvent();
 
 		// handle exclusive fullscreen mode (windowed mode and fullscreen
 		//  desktop were set when creating the window)

@@ -689,7 +689,7 @@ static void	RB_SetFrameBuffer(const void *data)
 			// create buffer texture
 			qglGenTextures(1, &texture);
 			qglBindTexture(GL_TEXTURE_2D, texture);
-			qglTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, glConfig.vidWidth, glConfig.vidHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+			qglTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, glConfig.vidWidth, glConfig.vidHeight, 0, GL_RGBA, GL_FLOAT, NULL);
 #ifdef _DEBUG
 			if (glConfig.khrDebugAvailable && r_debugGLContext.GetBool()) {
 				idStr name = idStr::Format("Color FBO #%d", fbo);
