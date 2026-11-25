@@ -930,7 +930,11 @@ extern idCVar r_gamma;					// changes gamma tables
 extern idCVar r_brightness;				// changes gamma tables
 extern idCVar r_gammaInShader;			// set gamma+brightness in shader instead of modifying system gamma tables
 
-extern idCVar r_renderer;				// arb2, etc
+
+extern idCVar r_tonemap;                // mel <hdr>: What tonemapper to use (0 = none, 1 = reinhard)
+extern idCVar r_exposure;               // mel <hdr>: Eye exposure
+
+extern idCVar r_renderer;				// glsl
 
 extern idCVar r_checkBounds;			// compare all surface bounds with precalculated ones
 

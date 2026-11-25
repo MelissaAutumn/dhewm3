@@ -93,9 +93,12 @@ idCVar r_ignoreGLErrors( "r_ignoreGLErrors", "1", CVAR_RENDERER | CVAR_BOOL, "ig
 idCVar r_finish( "r_finish", "0", CVAR_RENDERER | CVAR_BOOL, "force a call to glFinish() every frame" );
 idCVar r_swapInterval( "r_swapInterval", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_INTEGER, "changes the GL swap interval" );
 
-idCVar r_gamma( "r_gamma", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_FLOAT, "changes gamma tables", 0.5f, 3.0f );
+idCVar r_gamma( "r_gamma", "2.2", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_FLOAT, "changes gamma tables", 0.5f, 3.0f );
 idCVar r_brightness( "r_brightness", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_FLOAT, "changes gamma tables", 0.5f, 2.0f );
 idCVar r_gammaInShader( "r_gammaInShader", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL, "Set gamma and brightness in shaders instead using hardware gamma" );
+
+idCVar r_tonemap("r_tonemap", "1.0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_FLOAT, "0 for no tonemapping, 1.0 for reinhard", 0.0, 2.0);
+idCVar r_exposure("r_exposure", "1.0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_FLOAT, "tonemapping / eye exposure", 0.0, 100.0);
 
 idCVar r_renderer( "r_renderer", "best", CVAR_RENDERER | CVAR_ARCHIVE, "Hardware-specific renderer path to use. Values: best, glsl", r_rendererArgs, idCmdSystem::ArgCompletion_String<r_rendererArgs> );
 

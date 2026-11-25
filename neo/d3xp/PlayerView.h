@@ -307,6 +307,16 @@ public:
 };
 
 
+// mel <hdr>: Tonemapping post processing effect
+class FullscreenFX_Tonemap : public FullscreenFX {
+    const idMaterial*		material;
+
+public:
+    virtual void			Initialize();
+    virtual bool			Active();
+    virtual void			HighQuality();
+};
+
 
 /*
 ==================

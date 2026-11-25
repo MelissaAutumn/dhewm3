@@ -52,7 +52,6 @@ layout(location = 1) out vec4 out_light;
 
 void main()
 {
-    const float gamma = 2.2;
     const float specularPower = 4.0f;
 
     //vec3 lightVector = normalize(fragment.texcoord[0].xyz);
@@ -85,6 +84,5 @@ void main()
     out_light = light;
 
     out_color.rgb = (diffuseColor + specularColor) * (light.rgb * fragment.color.xyz);
-    out_color.rgb = pow(out_color.rgb, vec3(1.0 / gamma));
     out_color.a = 1.0;
 }
