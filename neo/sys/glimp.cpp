@@ -26,8 +26,15 @@ If you have questions concerning this license or the applicable additional terms
 ===========================================================================
 */
 
+#include "framework/Common.h"
 #include "sys/sys_sdl.h"
 #include <EGL/egl.h>
+
+
+#ifdef DISPLAY_WITH_VULKAN
+#include <SDL3/SDL_video.h>
+#include <SDL3/SDL_vulkan.h>
+#endif
 
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 
@@ -42,9 +49,7 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "sys/platform.h"
 #include "framework/Licensee.h"
-
 #include "renderer/tr_local.h"
-
 #include "sys/sys_imgui.h"
 
 #if defined(_WIN32) && defined(ID_ALLOW_TOOLS)
@@ -116,8 +121,9 @@ If you have questions concerning this license or the applicable additional terms
 #endif // _WIN32 and ID_ALLOW_TOOLS
 
 #if SDL_VERSION_ATLEAST(2, 0, 0)
-static SDL_Window *window = NULL;
-static SDL_GLContext context = NULL;
+static SDL_Window *glWindow = nullptr;
+static SDL_GLContext context = nullptr;
+SDL_Window *window = nullptr;
 #else
 static SDL_Surface *window = NULL;
 #define SDL_WINDOW_OPENGL SDL_OPENGL
@@ -330,6 +336,7 @@ try_again:
 
 // TODO: mel <hdr>: detect and use 10bit colour
 #if 1   // Note: These settings will crash EGL or later opengl versions
+        channelcolorbits = 16;
 		SDL_GL_SetAttribute(SDL_GL_RED_SIZE, channelcolorbits);
 		SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, channelcolorbits);
 		SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, channelcolorbits);
@@ -421,6 +428,9 @@ try_again:
 	#endif // SDL_VERSION_ATLEAST(2, 0, 4)
 
 	#if SDL_VERSION_ATLEAST(3, 0, 0)
+	    #ifdef DISPLAY_WITH_VULKAN
+   	    flags |= SDL_WINDOW_HIDDEN;
+    	#endif
 		SDL_PropertiesID props = SDL_CreateProperties();
 		SDL_SetStringProperty(props, SDL_PROP_WINDOW_CREATE_TITLE_STRING, ENGINE_VERSION);
 		SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER, SDL_WINDOWPOS_UNDEFINED_DISPLAY(selectedDisplay));
@@ -440,11 +450,19 @@ try_again:
 		}
 	  #endif
 
-		window = SDL_CreateWindowWithProperties(props);
+		// Okay this can be confusing, to support Vulkan display we create an off-screen context (glWindow)
+		// If anything goes wrong with this or if vulkan display is disabled we move it over to be window.
+		// This class is responsible for removing both windows, even though vkimp creates the vulkan window!
+		// I'm sure this footgun won't shoot me in the foot.
+		glWindow = SDL_CreateWindowWithProperties(props);
+
+		#ifndef DISPLAY_WITH_VULKAN
+		    window = glWindow;
+		#endif
+
 		SDL_DestroyProperties(props);
 
-
-		if (window == NULL) {
+		if (glWindow == nullptr) {
 			common->Warning("Couldn't set GL mode %d/%d/%d with %dx MSAA: %s",
 							channelcolorbits, tdepthbits, tstencilbits, multisamples, SDL_GetError());
 
@@ -462,46 +480,6 @@ try_again:
 			// creating the window succeeded, so adjust r_multiSamples to the value that was actually used
 			parms.multiSamples = multisamples;
 			r_multiSamples.SetInteger(multisamples);
-		}
-
-		// Inqure about the current display
-		GLimp_HandleHDREvent();
-
-		// handle exclusive fullscreen mode (windowed mode and fullscreen
-		//  desktop were set when creating the window)
-		// TODO: just call GLimp_SetScreenParms() ?
-		if (parms.fullScreen && !parms.borderless) {
-			SDL_DisplayID displayID = SDL_GetDisplayForWindow( window );
-			SDL_DisplayMode mode = {};
-			if ( SDL_GetClosestFullscreenDisplayMode(displayID, parms.width, parms.height,
-			                                         parms.displayHz, true, &mode) )
-			{
-				if ( ! SDL_SetWindowFullscreenMode(window, &mode) ) {
-					common->Warning("Can't set window fullscreen mode: %s\n", SDL_GetError());
-					SDL_DestroyWindow(window);
-					window = NULL;
-					return false; // trying other color depth etc is unlikely to help with this issue
-				}
-
-				if ( ! SDL_SetWindowFullscreen(window, true) ) {
-					common->Warning("Can't switch window to fullscreen mode: %s\n", SDL_GetError());
-					SDL_DestroyWindow(window);
-					window = NULL;
-					return false; // trying other color depth etc is unlikely to help with this issue
-				}
-			} else {
-				common->Warning("Can't get display mode: %s\n", SDL_GetError());
-				SDL_DestroyWindow(window);
-				window = NULL;
-				return false; // trying other color depth etc is unlikely to help with this issue
-			}
-		}
-
-		if ( ! SDL_SyncWindow(window) ) {
-			common->Warning("SDL_SyncWindow() failed: %s\n", SDL_GetError());
-			SDL_DestroyWindow(window);
-			window = NULL;
-			return false; // trying other color depth etc is unlikely to help with this issue
 		}
 
 	#else // SDL2
@@ -600,7 +578,73 @@ try_again:
 		}
 	#endif // SDL2
 
+	    #ifdef DISPLAY_WITH_VULKAN
+		context = SDL_GL_CreateContext(glWindow);
+		#else
 		context = SDL_GL_CreateContext(window);
+		#endif
+
+		// We rely on GL_Ext_semaphore for glIntrop with vulkan
+		bool use_vulkan_display = SDL_GL_ExtensionSupported("GL_EXT_semaphore");
+		if (use_vulkan_display) {
+            common->Printf("! GL_Ext_semaphore supported, allowing vulkan display\n");
+            if (VKimp_Init(parms)) {
+                common->Printf("! vulkan window all good!\n");
+            } else {
+                use_vulkan_display = false;
+            }
+		}
+
+		if (!use_vulkan_display) {
+		    common->Warning("! There was an issue creating vulkan display. Reverting to pure opengl.\n");
+			if (window) {
+                SDL_DestroyWindow(window);
+			}
+			window = glWindow;
+		}
+
+		#if SDL_VERSION_ATLEAST(3, 0, 0)
+		// handle exclusive fullscreen mode (windowed mode and fullscreen
+		//  desktop were set when creating the window)
+		// TODO: just call GLimp_SetScreenParms() ?
+		if (parms.fullScreen && !parms.borderless) {
+			SDL_DisplayID displayID = SDL_GetDisplayForWindow( window );
+			SDL_DisplayMode mode = {};
+			if ( SDL_GetClosestFullscreenDisplayMode(displayID, parms.width, parms.height,
+			                                         parms.displayHz, true, &mode) )
+			{
+				if ( ! SDL_SetWindowFullscreenMode(window, &mode) ) {
+					common->Warning("Can't set window fullscreen mode: %s\n", SDL_GetError());
+					SDL_DestroyWindow(window);
+					window = NULL;
+					return false; // trying other color depth etc is unlikely to help with this issue
+				}
+
+				if ( ! SDL_SetWindowFullscreen(window, true) ) {
+					common->Warning("Can't switch window to fullscreen mode: %s\n", SDL_GetError());
+					SDL_DestroyWindow(window);
+					window = NULL;
+					return false; // trying other color depth etc is unlikely to help with this issue
+				}
+			} else {
+				common->Warning("Can't get display mode: %s\n", SDL_GetError());
+				SDL_DestroyWindow(window);
+				window = NULL;
+				return false; // trying other color depth etc is unlikely to help with this issue
+			}
+		}
+
+		if ( ! SDL_SyncWindow(window) ) {
+			common->Warning("SDL_SyncWindow() failed: %s\n", SDL_GetError());
+			SDL_DestroyWindow(window);
+			window = NULL;
+			return false; // trying other color depth etc is unlikely to help with this issue
+		}
+
+		// Inqure about the current display
+		GLimp_HandleHDREvent();
+
+		#endif
 
 		GLimp_SetSwapInterval( r_swapInterval.GetInteger() );
 		r_swapInterval.ClearModified();
@@ -1149,6 +1193,13 @@ void GLimp_Shutdown() {
 		SDL_DestroyWindow(window);
 		window = NULL;
 	}
+
+	#ifdef DISPLAY_WITH_VULKAN
+	if (glWindow) {
+                 SDL_DestroyWindow(glWindow);
+		glWindow = nullptr;
+	}
+	#endif
 #endif
 }
 
@@ -1159,6 +1210,11 @@ GLimp_SwapBuffers
 */
 void GLimp_SwapBuffers() {
 	D3P_BeginCPUSample(SDL_GL_SwapWindow);
+
+#ifdef HACKY_HDR_DISPLAY
+
+#endif
+
 #if SDL_VERSION_ATLEAST(2, 0, 0)
 	SDL_GL_SwapWindow(window);
 #else

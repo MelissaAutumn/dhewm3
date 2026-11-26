@@ -1170,6 +1170,10 @@ IMPLEMENTATION SPECIFIC FUNCTIONS
 ====================================================================
 */
 
+class SDL_Window;
+
+extern SDL_Window* window;
+
 typedef struct {
 	int			width;
 	int			height;
@@ -1238,6 +1242,10 @@ void GLimp_UpdateWindowSize();
 
 glimpParms_t GLimp_GetCurState();
 float GLimp_GetDisplayRefresh();
+
+// Vulkan display
+
+bool VKimp_Init(glimpParms_t parms);
 
 /*
 ====================================================================

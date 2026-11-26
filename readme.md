@@ -27,3 +27,4 @@ Here's some projects I've referenced or borrowed code from:
 * https://github.com/id-Software/DOOM-3
 * https://github.com/id-Software/DOOM-3-BFG/tree/master/base/renderprogs
 * https://github.com/omcfadde/dante/tree/es2
+* https://github.com/stevelittlefish/c_vulkan_sdl3
