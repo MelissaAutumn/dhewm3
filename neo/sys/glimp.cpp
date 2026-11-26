@@ -177,6 +177,7 @@ static void SetSDLIcon()
 #endif // SDL2 and SDL1.2
 
 void GLimp_HandleHDREvent() {
+#if SDL_VERSION_ATLEAST(3, 0, 0)
     // query about hdr output support
 	auto windowProps = SDL_GetWindowProperties(window);
 	bool is_hdr_supported = SDL_GetBooleanProperty(windowProps, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false);
@@ -186,6 +187,7 @@ void GLimp_HandleHDREvent() {
 	r_hdrWhiteLevel.SetFloat(hdr_white_levels);
 	r_hdrHeadroom.SetFloat(hdr_headroom);
 	//common->Warning("!!!! HDR INFO:\n * Supported: %d\n * SDR White Level: %f\n * HDR Headroom: %f\n", is_hdr_supported, hdr_white_levels, hdr_headroom);
+#endif
 }
 
 /*
