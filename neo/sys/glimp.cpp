@@ -28,12 +28,9 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "sys/sys_sdl.h"
 #include <EGL/egl.h>
-#include <SDL3/SDL_hints.h>
-#include <SDL3/SDL_properties.h>
-#include <SDL3/SDL_stdinc.h>
-#include <SDL3/SDL_video.h>
 
 #if SDL_VERSION_ATLEAST(3, 0, 0)
+
   // backwards-compat with SDL2
   #define SDL_WINDOW_ALLOW_HIGHDPI SDL_WINDOW_HIGH_PIXEL_DENSITY
   #define SDL_GL_DeleteContext SDL_GL_DestroyContext
