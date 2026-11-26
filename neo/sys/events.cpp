@@ -40,7 +40,10 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "sys/sys_public.h"
 #include "sys/sys_imgui.h"
+
+#if SDL_VERSION_ATLEAST(3,0,0)
 #include <SDL3/SDL_events.h>
+#endif
 
 #if !SDL_VERSION_ATLEAST(2, 0, 0)
 #define SDL_Keycode SDLKey
