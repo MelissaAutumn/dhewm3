@@ -29,6 +29,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "framework/Common.h"
 #include "sys/sys_sdl.h"
 #include <EGL/egl.h>
+#include <SDL3/SDL_video.h>
 
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 
@@ -190,6 +191,258 @@ void GLimp_HandleHDREvent() {
 #endif
 }
 
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+bool GLimp_Init(glimpParms_t parms) {
+   	common->Printf("Initializing OpenGL subsystem\n");
+
+    assert(SDL_WasInit(SDL_INIT_VIDEO));
+
+	My_SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    if(parms.fullScreen && parms.borderless) {
+        flags |= SDL_WINDOW_FULLSCREEN;
+	}
+    r_windowResizable.ClearModified();
+	if ( r_windowResizable.GetBool() ) {
+		flags |= SDL_WINDOW_RESIZABLE;
+	}
+
+#ifdef DISPLAY_WITH_VULKAN
+    flags |= SDL_WINDOW_HIDDEN;
+#endif
+
+	if ( r_glDebugContext.GetBool() ) {
+		common->Printf( "Requesting an OpenGL Debug Context (r_glDebugContext is enabled)\n" );
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
+	}
+
+	if ( parms.fullScreen && parms.borderless ) {
+		common->Printf( "Will create a pseudo-fullscreen window at the current desktop resolution\n" );
+	} else {
+		const char* windowMode = parms.fullScreen ? "fullscreen-" : "";
+		common->Printf("Will create a %swindow with resolution %dx%d (r_mode = %d)\n",
+					   windowMode, parms.width, parms.height, r_mode.GetInteger());
+	}
+
+	Uint32 selectedDisplay = 0;
+	{
+		float x, y;
+		int numDisplays = 0;
+		SDL_DisplayID* displayIDs = SDL_GetDisplays(&numDisplays);
+
+		SDL_GetGlobalMouseState(&x, &y);
+
+		common->Printf("SDL detected %d displays: \n", numDisplays);
+		bool found = false;
+		for ( int j=0; j<numDisplays; ++j ) {
+			SDL_Rect rect;
+			SDL_DisplayID displayId_x = displayIDs[j];
+			int numModes = 0;
+			SDL_DisplayMode** modes = SDL_GetFullscreenDisplayModes(displayId_x, &numModes);
+			common->Printf( " Display %d (ID %u) has the following modes:\n", j, displayId_x );
+			for ( int dmIdx=0; dmIdx < numModes; ++dmIdx ) {
+				SDL_DisplayMode* mode = modes[dmIdx];
+				common->Printf( " - %d x %d @ %g Hz, density %g \n", mode->w, mode->h, mode->refresh_rate, mode->pixel_density );
+			}
+			SDL_free( modes );
+			if ( SDL_GetDisplayBounds(displayId_x, &rect) ) {
+				common->Printf("  Currently: %dx%d at (%d, %d) to (%d, %d)\n", rect.w, rect.h,
+				               rect.x, rect.y, rect.x+rect.w, rect.y+rect.h);
+				if ( !found && x >= rect.x && x < rect.x + rect.w
+					&& y >= rect.y && y < rect.y + rect.h )
+				{
+					selectedDisplay = j;
+					found = true;
+				}
+			}
+		}
+		if(displayIDs != NULL) {
+			SDL_DisplayID displayID = displayIDs[selectedDisplay];
+			common->Printf("Will use display %u (%u) because mouse cursor is at (%g, %g).\n",
+			               selectedDisplay, displayID, x, y);
+			selectedDisplay = displayID;
+			SDL_free(displayIDs);
+		}
+	}
+
+    SDL_PropertiesID props = SDL_CreateProperties();
+    SDL_SetStringProperty(props, SDL_PROP_WINDOW_CREATE_TITLE_STRING, ENGINE_VERSION);
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER, SDL_WINDOWPOS_UNDEFINED_DISPLAY(selectedDisplay));
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, SDL_WINDOWPOS_UNDEFINED_DISPLAY(selectedDisplay));
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, parms.width);
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, parms.height);
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_FLAGS_NUMBER, flags);
+
+
+    // Okay this can be confusing, to support Vulkan display we create an off-screen context (glWindow)
+	// If anything goes wrong with this or if vulkan display is disabled we move it over to be window.
+	// This class is responsible for removing both windows, even though vkimp creates the vulkan window!
+	// I'm sure this footgun won't shoot me in the foot.
+	glWindow = SDL_CreateWindowWithProperties(props);
+
+#ifndef DISPLAY_WITH_VULKAN
+	    window = glWindow;
+#endif
+
+	SDL_DestroyProperties(props);
+
+#ifdef DISPLAY_WITH_VULKAN
+    context = SDL_GL_CreateContext(glWindow);
+#else
+    context = SDL_GL_CreateContext(window);
+#endif
+
+    // We rely on GL_Ext_semaphore for glIntrop with vulkan
+    bool use_vulkan_display = SDL_GL_ExtensionSupported("GL_EXT_semaphore");
+    if (use_vulkan_display) {
+        common->Printf("! GL_Ext_semaphore supported, allowing vulkan display\n");
+        if (VKimp_Init(parms)) {
+            common->Printf("! vulkan window all good!\n");
+        } else {
+            use_vulkan_display = false;
+        }
+    } else {
+        common->Warning("! Required extension GL_EXT_semaphore is not supported.\n");
+    }
+
+    if (!use_vulkan_display) {
+        common->Warning("! There was an issue creating vulkan display. Reverting to pure opengl.\n");
+        if (window) {
+            SDL_DestroyWindow(window);
+        }
+        window = glWindow;
+        SDL_ShowWindow(window);
+    }
+
+	// handle exclusive fullscreen mode (windowed mode and fullscreen
+	//  desktop were set when creating the window)
+	// TODO: just call GLimp_SetScreenParms() ?
+	if (parms.fullScreen && !parms.borderless) {
+		SDL_DisplayID displayID = SDL_GetDisplayForWindow( window );
+		SDL_DisplayMode mode = {};
+		if ( SDL_GetClosestFullscreenDisplayMode(displayID, parms.width, parms.height, parms.displayHz, true, &mode) ) {
+			if ( ! SDL_SetWindowFullscreenMode(window, &mode) ) {
+				common->Warning("Can't set window fullscreen mode: %s\n", SDL_GetError());
+				SDL_DestroyWindow(window);
+				window = NULL;
+				return false; // trying other color depth etc is unlikely to help with this issue
+			}
+
+			if ( ! SDL_SetWindowFullscreen(window, true) ) {
+				common->Warning("Can't switch window to fullscreen mode: %s\n", SDL_GetError());
+				SDL_DestroyWindow(window);
+				window = NULL;
+				return false; // trying other color depth etc is unlikely to help with this issue
+			}
+		} else {
+			common->Warning("Can't get display mode: %s\n", SDL_GetError());
+			SDL_DestroyWindow(window);
+			window = NULL;
+			return false; // trying other color depth etc is unlikely to help with this issue
+		}
+	}
+
+	if ( ! SDL_SyncWindow(window) ) {
+		common->Warning("SDL_SyncWindow() failed: %s\n", SDL_GetError());
+		SDL_DestroyWindow(window);
+		window = NULL;
+		return false; // trying other color depth etc is unlikely to help with this issue
+	}
+
+	// Inqure about the current display
+	GLimp_HandleHDREvent();
+
+	GLimp_SetSwapInterval( r_swapInterval.GetInteger() );
+	r_swapInterval.ClearModified();
+
+	// for HighDPI, window size and drawable size can differ
+	GLimp_UpdateWindowSize();
+
+	SetSDLIcon(); // for SDL2  this must be done after creating the window
+
+	// TODO: also check for fullscreen-desktop?
+	glConfig.isFullscreen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
+	const char* fsStr = glConfig.isFullscreen ? "fullscreen " : "";
+	if ( (int)glConfig.winWidth != glConfig.vidWidth ) {
+		common->Printf( "Got a HighDPI %swindow with physical resolution %d x %d and virtual resolution %g x %g\n",
+						fsStr, glConfig.vidWidth, glConfig.vidHeight, glConfig.winWidth, glConfig.winHeight );
+	} else {
+		common->Printf( "Got a %swindow with resolution %g x %g\n", fsStr, glConfig.winWidth, glConfig.winHeight );
+	}
+
+	idStr msaaStr;
+	if (parms.multiSamples > 0) {
+		msaaStr = idStr::Format("%dx MSAA", parms.multiSamples);
+	}
+	else {
+		msaaStr = "no MSAA";
+	}
+
+	//common->Printf("Requested %d color bits per chan, %d alpha %d depth, %d stencil and %s\n", channelcolorbits, talphabits, tdepthbits, tstencilbits, msaaStr.c_str());
+
+	{
+		int r, g, b, a, d, s, msaa;
+		SDL_GL_GetAttribute(SDL_GL_RED_SIZE, &r);
+		SDL_GL_GetAttribute(SDL_GL_GREEN_SIZE, &g);
+		SDL_GL_GetAttribute(SDL_GL_BLUE_SIZE, &b);
+		SDL_GL_GetAttribute(SDL_GL_ALPHA_SIZE, &a);
+		SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &d);
+		SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &s);
+		SDL_GL_GetAttribute(SDL_GL_MULTISAMPLEBUFFERS, &msaa);
+		if (msaa) {
+			SDL_GL_GetAttribute(SDL_GL_MULTISAMPLESAMPLES, &msaa);
+		}
+
+		if (msaa > 0)
+			msaaStr = idStr::Format("%dx MSAA", msaa);
+		else
+			msaaStr = "no MSAA";
+
+		common->Printf("Got %d stencil bits, %d depth bits, color bits: r%d g%d b%d a%d and %s\n", s, d, r, g, b, a, msaaStr.c_str());
+
+		glConfig.colorBits = r+g+b; // a bit imprecise, but seems to be used only in GfxInfo_f()
+		glConfig.alphabits = a;
+		glConfig.depthBits = d;
+		glConfig.stencilBits = s;
+		r_multiSamples.SetInteger(msaa);
+	}
+
+	glConfig.displayFrequency = 0;
+
+	// for r_fillWindowAlphaChan -1, see also the big comment above
+	glConfig.shouldFillWindowAlpha = false;
+	glConfig.isWayland = false;
+	const char* videoDriver = SDL_GetCurrentVideoDriver();
+	if (idStr::Icmp(videoDriver, "wayland") == 0) {
+		glConfig.isWayland = true;
+	}
+
+	glConfig.haveDebugContext = false;
+	int cflags = 0;
+	if ( SDL_GL_GetAttribute( SDL_GL_CONTEXT_FLAGS, &cflags ) ) {
+		glConfig.haveDebugContext = (cflags & SDL_GL_CONTEXT_DEBUG_FLAG) != 0;
+		if ( glConfig.haveDebugContext )
+			common->Printf( "Got a debug context!\n" );
+		else if( r_glDebugContext.GetBool() ) {
+			common->Warning( "Requested a debug context, but didn't get one!\n" );
+		}
+	}
+
+
+    if (!window) {
+    	common->Warning("No usable GL mode found: %s", SDL_GetError());
+    	return false;
+    }
+
+    // SDL1.2 has no context, and is not supported by ImGui anyway
+    D3::ImGuiHooks::Init(window, context);
+
+    return true;
+}
+#else
 /*
 ===================
 GLimp_Init
@@ -885,6 +1138,7 @@ try_again:
 
 	return true;
 }
+#endif
 
 /*
 ===================
