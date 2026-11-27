@@ -63,7 +63,7 @@ void main()
     vec4 subOne = vec4(-1, -1, -1, -1); // PARAM	subOne = { -1, -1, -1, -1 };
     vec4 scaleTwo = vec4(2, 2, 2, 2); // PARAM   scaleTwo = { 2, 2, 2, 2 };
     vec4 light = texture(samp_cubemap, fragment.texcoord[0].xyz); // TEX	light, fragment.texcoord[0], texture[0], CUBE;
-    light = light * scaleTwo + subOne; // MAD	light, light, scaleTwo, subOne;
+    //light = light * scaleTwo + subOne; // MAD	light, light, scaleTwo, subOne;
 
     vec3 localNormal;
     localNormal.xy = bumpMap.wy - 0.5;
@@ -79,6 +79,8 @@ void main()
     light = vec4(dot(light.xyz, localNormal));
     light = max(light, vec4(uProgramEnv[PP_AMBIENT_LEVEL]));
     light = light * lightProj * lightFalloff;
+
+    //vec3 lightColor = dot3(lightVector, localNormal) * lightProj.xyz * lightFalloff.xyz;
 
     out_color.rgb = (diffuseColor + specularColor) * (light.rgb * fragment.color.xyz);
     out_color.a = 1.0;
