@@ -330,7 +330,9 @@ try_again:
 
 // TODO: mel <hdr>: detect and use 10bit colour
 #if 1   // Note: These settings will crash EGL or later opengl versions
-        channelcolorbits = 16;
+        static int numOfTimes = 0;
+
+        channelcolorbits = numOfTimes > 0 ? 8 : 16;
 		SDL_GL_SetAttribute(SDL_GL_RED_SIZE, channelcolorbits);
 		SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, channelcolorbits);
 		SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, channelcolorbits);
@@ -344,6 +346,8 @@ try_again:
 
 		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, (multisamples > 1) ? 1 : 0);
 		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, multisamples);
+
+		numOfTimes++;
 #endif
 #if SDL_VERSION_ATLEAST(2, 0, 0) // SDL2 and SDL3 window creation
 
@@ -595,6 +599,7 @@ try_again:
                 SDL_DestroyWindow(window);
 			}
 			window = glWindow;
+			SDL_ShowWindow(window);
 		}
 
 		#if SDL_VERSION_ATLEAST(3, 0, 0)
