@@ -1903,14 +1903,20 @@ void FullscreenFXManager::Process( const renderView_t *view ) {
 
 
 void FullscreenFX_Tonemap::Initialize() {
-    material = declManager->FindMaterial("textures/fx/tonemap");
+    material = declManager->FindMaterial("textures/fx/tonemap", false);
+    if (!material) {
+        common->Warning("Tonemapping disabled due to missing material\n");
+    }
 }
 
 bool FullscreenFX_Tonemap::Active() {
-    return true;
+    return material != nullptr;
 }
 
 void FullscreenFX_Tonemap::HighQuality() {
+    if (!material) {
+        return;
+    }
     float gamma = cvarSystem->GetCVarFloat("r_gamma");
     float applyTonemapping = cvarSystem->GetCVarFloat("r_tonemap");
     float exposure = cvarSystem->GetCVarFloat("r_exposure");
