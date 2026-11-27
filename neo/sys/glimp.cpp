@@ -30,12 +30,6 @@ If you have questions concerning this license or the applicable additional terms
 #include "sys/sys_sdl.h"
 #include <EGL/egl.h>
 
-
-#ifdef DISPLAY_WITH_VULKAN
-#include <SDL3/SDL_video.h>
-#include <SDL3/SDL_vulkan.h>
-#endif
-
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 
   // backwards-compat with SDL2

@@ -58,9 +58,9 @@ if(MSVC)
 endif()
 option(DEDICATED	"Build the dedicated server" OFF)
 option(ONATIVE		"Optimize for the host CPU" OFF)
-option(SDL2			"Use SDL2 instead of SDL1.2" ON)
-option(SDL3			"Use SDL3 instead of SDL2 or SDL1.2" OFF)
-option(IMGUI		"Build with Dear ImGui integration - requires SDL2/SDL3 and C++11" ON)
+option(SDL2			"Use SDL2 instead of SDL1.2" OFF)
+option(SDL3			"Use SDL3 instead of SDL2 or SDL1.2" ON)
+option(IMGUI		"Build with Dear ImGui integration - requires SDL2/SDL3 and C++11" OFF)
 option(REPRODUCIBLE_BUILD "Replace __DATE__ and __TIME__ by hardcoded values for reproducible builds" OFF)
 
 option(TRACY		"Build and integrate the Tracy profiler, requires HARDLINK_GAME" OFF)
@@ -224,11 +224,11 @@ endif()
 if (VULKAN_DISPLAY)
   find_package(Vulkan REQUIRED)
   add_definitions(-DDISPLAY_WITH_VULKAN=1)
+
 endif()
 #
 find_package(OpenAL REQUIRED)
 include_directories(${OPENAL_INCLUDE_DIR})
-message(WARNING "Here's the var! [DHEWM3LIBS=${DHEWM3LIBS}] / [OPENAL_INCLUDE_DIR=${OPENAL_INCLUDE_DIR}]")
 
 if (SDL3)
   if(SDL2)
@@ -287,6 +287,11 @@ if(NOT IMGUI)
   # without ImGui C++98 should suffices, preserves compatibility
   # with vintage system like PPC Macs
   set (CMAKE_CXX_STANDARD 98)
+endif()
+
+# If we're using vulkan VMA requires c++17, but we can get away with just 11.
+if (VULKAN_DISPLAY)
+  set (CMAKE_CXX_STANDARD 17)
 endif()
 
 if(DEFINED ENV{MSYSTEM})
